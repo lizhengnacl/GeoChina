@@ -4,6 +4,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -15,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -34,7 +36,9 @@ import com.geochina.app.model.AdministrativeRegion
 import com.geochina.app.model.FocusRequest
 import com.geochina.app.model.GeoPoint
 import com.geochina.app.model.GeoRect
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ln
@@ -70,6 +74,8 @@ fun AdminMapCanvas(
     var previousLevel by remember { mutableStateOf(currentLevel) }
     var stableProvinceCode by remember { mutableStateOf<String?>(null) }
     var stableCityCode by remember { mutableStateOf<String?>(null) }
+    var viewportAnimationJob by remember { mutableStateOf<Job?>(null) }
+    val interactionScope = rememberCoroutineScope()
     val transition = remember { Animatable(1f) }
 
     fun baseScaleFor(size: IntSize): Float {
@@ -90,13 +96,13 @@ fun AdminMapCanvas(
         )
     }
 
-    fun screenToWorld(screen: Offset): GeoPoint {
+    fun screenToWorld(screen: Offset, drawScale: Float = scale, drawPan: Offset = pan): GeoPoint {
         val bounds = ChinaAdminDataset.worldBounds
         val baseScale = baseScaleFor(canvasSize)
         val center = screenCenter(canvasSize)
         return GeoPoint(
-            x = (screen.x - center.x - pan.x) / (baseScale * scale) + bounds.center.x,
-            y = (screen.y - center.y - pan.y) / (baseScale * scale) + bounds.center.y,
+            x = (screen.x - center.x - drawPan.x) / (baseScale * drawScale) + bounds.center.x,
+            y = (screen.y - center.y - drawPan.y) / (baseScale * drawScale) + bounds.center.y,
         )
     }
 
@@ -265,18 +271,57 @@ fun AdminMapCanvas(
         return screenCenter(canvasSize) - projected
     }
 
-    fun zoomAround(screenPoint: Offset, factor: Float) {
-        if (canvasSize.width == 0 || canvasSize.height == 0) return
-        val worldPoint = screenToWorld(screenPoint)
-        val newScale = (scale * factor).coerceIn(MinMapScale, MaxMapScale)
+    fun zoomTargetAround(
+        screenPoint: Offset,
+        factor: Float,
+        startScale: Float = scale,
+        startPan: Offset = pan,
+    ): ViewportTransform? {
+        if (canvasSize.width == 0 || canvasSize.height == 0) return null
+        val worldPoint = screenToWorld(screenPoint, startScale, startPan)
+        val newScale = (startScale * factor).coerceIn(MinMapScale, MaxMapScale)
         val baseScale = baseScaleFor(canvasSize)
         val center = screenCenter(canvasSize)
         val bounds = ChinaAdminDataset.worldBounds
-        scale = newScale
-        pan = Offset(
+        val newPan = Offset(
             x = screenPoint.x - center.x - (worldPoint.x - bounds.center.x) * baseScale * newScale,
             y = screenPoint.y - center.y - (worldPoint.y - bounds.center.y) * baseScale * newScale,
         )
+        return ViewportTransform(newScale, newPan)
+    }
+
+    fun zoomAround(screenPoint: Offset, factor: Float) {
+        val target = zoomTargetAround(screenPoint, factor) ?: return
+        scale = target.scale
+        pan = target.pan
+    }
+
+    suspend fun animateViewportTo(target: ViewportTransform, durationMillis: Int = 320) {
+        val startScale = scale
+        val startPan = pan
+        if (abs(startScale - target.scale) < 0.001f && (startPan - target.pan).getDistance() < 0.5f) return
+        animate(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing),
+        ) { value, _ ->
+            scale = lerp(startScale, target.scale, value)
+            pan = lerp(startPan, target.pan, value)
+        }
+        scale = target.scale
+        pan = target.pan
+    }
+
+    suspend fun animateZoomAround(screenPoint: Offset, factor: Float) {
+        val target = zoomTargetAround(screenPoint, factor) ?: return
+        animateViewportTo(target)
+    }
+
+    fun launchZoomAnimation(screenPoint: Offset, factor: Float) {
+        viewportAnimationJob?.cancel()
+        viewportAnimationJob = interactionScope.launch {
+            animateZoomAround(screenPoint, factor)
+        }
     }
 
     fun handleTap(screenPoint: Offset) {
@@ -344,7 +389,7 @@ fun AdminMapCanvas(
             previousLevel = renderedLevel
             renderedLevel = currentLevel
             transition.snapTo(0f)
-            transition.animateTo(1f, tween(durationMillis = 360))
+            transition.animateTo(1f, tween(durationMillis = 460, easing = FastOutSlowInEasing))
         }
     }
 
@@ -363,18 +408,16 @@ fun AdminMapCanvas(
         }
         val targetScale = max(fitScale, minimumScale).coerceIn(0.95f, MaxMapScale)
         val targetPan = targetPanFor(region, targetScale)
-        val startScale = scale
-        val startPan = pan
-        animate(0f, 1f, animationSpec = tween(durationMillis = 480)) { value, _ ->
-            scale = lerp(startScale, targetScale, value)
-            pan = lerp(startPan, targetPan, value)
+        viewportAnimationJob?.cancel()
+        viewportAnimationJob = interactionScope.launch {
+            animateViewportTo(ViewportTransform(targetScale, targetPan), durationMillis = 620)
         }
     }
 
     LaunchedEffect(zoomCommand?.nonce, canvasSize) {
         val command = zoomCommand ?: return@LaunchedEffect
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
-        zoomAround(screenCenter(canvasSize), command.factor)
+        launchZoomAnimation(screenCenter(canvasSize), command.factor)
     }
 
     Canvas(
@@ -382,6 +425,7 @@ fun AdminMapCanvas(
             .onSizeChanged { canvasSize = it }
             .pointerInput(Unit) {
                 detectTransformGestures { centroid, gesturePan, zoom, _ ->
+                    viewportAnimationJob?.cancel()
                     if (abs(zoom - 1f) > 0.002f) {
                         zoomAround(centroid, zoom)
                     } else {
@@ -392,7 +436,7 @@ fun AdminMapCanvas(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = ::handleTap,
-                    onDoubleTap = { zoomAround(it, 1.7f) },
+                    onDoubleTap = { launchZoomAnimation(it, 1.7f) },
                 )
             }
             .pointerInput(Unit) {
@@ -412,7 +456,7 @@ fun AdminMapCanvas(
                             released = event.changes.none { it.pressed }
                         }
                         if (!moved) {
-                            zoomAround(startPositions.first(), 0.68f)
+                            launchZoomAnimation(startPositions.first(), 0.68f)
                         }
                     }
                 }
@@ -466,6 +510,11 @@ fun AdminMapCanvas(
 data class ZoomCommand(
     val factor: Float,
     val nonce: Long,
+)
+
+private data class ViewportTransform(
+    val scale: Float,
+    val pan: Offset,
 )
 
 private data class MapPalette(
