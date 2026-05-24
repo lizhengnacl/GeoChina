@@ -41,6 +41,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan
+import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
@@ -60,7 +62,9 @@ fun AdminMapCanvas(
     focusRequest: FocusRequest?,
     zoomCommand: ZoomCommand?,
     darkTheme: Boolean,
+    useOnlineBasemap: Boolean = true,
     onLevelChanged: (AdminLevel) -> Unit,
+    onViewportChanged: (MapViewport) -> Unit = {},
     onRegionCandidates: (List<AdministrativeRegion>) -> Unit,
     onBlankTap: () -> Unit,
     modifier: Modifier = Modifier,
@@ -122,6 +126,16 @@ fun AdminMapCanvas(
             top = min(topLeft.y, bottomRight.y),
             right = max(topLeft.x, bottomRight.x),
             bottom = max(topLeft.y, bottomRight.y),
+        )
+    }
+
+    fun viewportState(): MapViewport {
+        val center = viewportCenterWorld()
+        val pixelPerProjectedDegree = baseScaleFor(canvasSize) * scale
+        return MapViewport(
+            latitude = latitudeFromProjectedY(center.y),
+            longitude = center.x.toDouble().coerceIn(70.0, 140.0),
+            zoom = mapLibreZoomFor(pixelPerProjectedDegree),
         )
     }
 
@@ -348,6 +362,11 @@ fun AdminMapCanvas(
         onLevelChanged(levelForScale(scale))
     }
 
+    LaunchedEffect(canvasSize, scale, pan) {
+        if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
+        onViewportChanged(viewportState())
+    }
+
     LaunchedEffect(canvasSize, pan, scale, selectedRegion?.code) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
         val center = viewportCenterWorld()
@@ -462,13 +481,15 @@ fun AdminMapCanvas(
                 }
             },
     ) {
-        drawOfflineBasemap(
-            palette = palette,
-            scale = scale,
-            pan = pan,
-            worldToScreen = ::worldToScreen,
-            density = density.density,
-        )
+        if (!useOnlineBasemap) {
+            drawOfflineBasemap(
+                palette = palette,
+                scale = scale,
+                pan = pan,
+                worldToScreen = ::worldToScreen,
+                density = density.density,
+            )
+        }
         drawAuxiliaryBoundaries(
             palette = palette,
             scale = scale,
@@ -1009,6 +1030,17 @@ private fun projectLongitudeLatitude(longitude: Float, latitude: Float): GeoPoin
     val clampedLatitude = latitude.coerceIn(-85f, 85f)
     val mercatorY = ln(tan(PI / 4.0 + Math.toRadians(clampedLatitude.toDouble()) / 2.0)) * 180.0 / PI
     return GeoPoint(longitude, -mercatorY.toFloat())
+}
+
+private fun latitudeFromProjectedY(projectedY: Float): Double {
+    val mercatorY = -projectedY.toDouble()
+    val radians = 2.0 * atan(exp(mercatorY * PI / 180.0)) - PI / 2.0
+    return Math.toDegrees(radians).coerceIn(-85.0, 85.0)
+}
+
+private fun mapLibreZoomFor(pixelPerProjectedDegree: Float): Double {
+    val zoom = ln((pixelPerProjectedDegree * 360.0) / 512.0) / ln(2.0)
+    return zoom.coerceIn(2.0, 18.5)
 }
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float = start + (stop - start) * fraction

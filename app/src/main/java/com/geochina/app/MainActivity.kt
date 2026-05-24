@@ -13,6 +13,8 @@ import com.geochina.app.data.GeoChinaDatabase
 import com.geochina.app.data.SearchHistoryStore
 import com.geochina.app.ui.GeoChinaRoute
 import com.geochina.app.ui.GeoChinaViewModel
+import org.maplibre.android.MapLibre
+import org.maplibre.android.offline.OfflineManager
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,6 +23,8 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
+        MapLibre.getInstance(this)
+        OfflineManager.getInstance(this).setMaximumAmbientCacheSize(256L * 1024L * 1024L, null)
         ChinaAdminDataset.initialize(this)
         val database = GeoChinaDatabase.get(this)
         val viewModel = ViewModelProvider(

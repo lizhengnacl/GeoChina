@@ -2,13 +2,14 @@
 
 离线看清中国行政层级。
 
-中国行政区划离线地图 Android App 原型。
+中国行政区划地图 Android App 原型。
 
 ## 已实现
 
 - Jetpack Compose + Material 3 单 Activity 应用
-- Canvas 纯矢量地图渲染，无在线底图和网络权限
-- 离线矢量底图：真实中国陆地轮廓、海陆分色、经纬网、海域标注和南海辅助边界
+- MapLibre 在线真实地图底图，使用 SDK 瓦片缓存提升重复浏览体验
+- Canvas 纯矢量行政区划专题层，可叠加在在线底图之上
+- 离线行政区划数据：真实中国陆地轮廓、省/市/区县边界和南海辅助边界
 - 双指缩放、拖动、双击放大、双指点击缩小、右下角缩放按钮
 - 按缩放级别自动切换省级 / 市级 / 区县级粒度，并带淡入淡出过渡
 - 市级和区县级按当前视口焦点分层显示：焦点省/市下级区域正常显示，外围区域弱化为背景上下文并保留上一级名称
@@ -28,6 +29,8 @@
 - `app/src/main/assets/mapdata/county.geojson`：区县级边界
 
 数据来自 DataV.GeoAtlas `areas_v3` GeoJSON 接口，App 启动时由 `ChinaAdminDataset` 解析为真实行政区 polygon 后在 Canvas 上绘制。省级文件中的 `100000_JD` 几何会作为九段线辅助边界绘制，不参与搜索和点击。
+
+在线底图通过 MapLibre Android SDK 加载，默认样式地址配置在 `app/src/main/res/values/strings.xml` 的 `online_basemap_style_url`。当前使用 MapLibre demo tiles 便于开发验证；正式发布时应替换为拥有授权和稳定 SLA 的地图服务，并保留对应数据源 attribution。App 启动时会将 MapLibre ambient cache 上限设为 256MB，用于缓存在线瓦片和样式资源。
 
 注意：DataV.GeoAtlas 是面向可视化场景的简化边界数据，适合本离线原型和非商业演示。正式发布、商用或对地图合规性有严格要求时，应替换为经审定的标准地图数据，并复核审图号、南海诸岛、九段线、台湾省及港澳边界等表达。
 
