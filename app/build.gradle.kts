@@ -1,8 +1,22 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.devtools.ksp")
 }
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+val amapApiKey = providers.gradleProperty("AMAP_API_KEY").orNull
+    ?: providers.environmentVariable("AMAP_API_KEY").orNull
+    ?: localProperties.getProperty("AMAP_API_KEY")
+    ?: ""
 
 android {
     namespace = "com.geochina.app"
@@ -14,6 +28,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
     }
 
     buildFeatures {
@@ -52,7 +67,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
     implementation("androidx.room:room-ktx:2.6.1")
     implementation("androidx.room:room-runtime:2.6.1")
-    implementation("org.maplibre.gl:android-sdk:13.0.2")
+    implementation("com.amap.api:3dmap:10.0.600")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     ksp("androidx.room:room-compiler:2.6.1")

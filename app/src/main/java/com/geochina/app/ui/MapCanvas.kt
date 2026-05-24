@@ -135,7 +135,7 @@ fun AdminMapCanvas(
         return MapViewport(
             latitude = latitudeFromProjectedY(center.y),
             longitude = center.x.toDouble().coerceIn(70.0, 140.0),
-            zoom = mapLibreZoomFor(pixelPerProjectedDegree),
+            zoom = onlineMapZoomFor(pixelPerProjectedDegree),
         )
     }
 
@@ -1038,9 +1038,9 @@ private fun latitudeFromProjectedY(projectedY: Float): Double {
     return Math.toDegrees(radians).coerceIn(-85.0, 85.0)
 }
 
-private fun mapLibreZoomFor(pixelPerProjectedDegree: Float): Double {
+private fun onlineMapZoomFor(pixelPerProjectedDegree: Float): Double {
     val zoom = ln((pixelPerProjectedDegree * 360.0) / 512.0) / ln(2.0)
-    return zoom.coerceIn(2.0, 18.5)
+    return zoom.coerceIn(2.0, 20.0)
 }
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float = start + (stop - start) * fraction

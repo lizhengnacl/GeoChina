@@ -1,5 +1,4 @@
 <resources>
     <string name="app_name">中国行政区划地图</string>
     <string name="app_slogan">离线看清中国行政层级</string>
-    <string name="online_basemap_style_url">https://demotiles.maplibre.org/style.json</string>
 </resources>

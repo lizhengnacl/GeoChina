@@ -7,14 +7,14 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
+import com.amap.api.maps.MapsInitializer
 import com.geochina.app.data.AdminRepository
 import com.geochina.app.data.ChinaAdminDataset
 import com.geochina.app.data.GeoChinaDatabase
 import com.geochina.app.data.SearchHistoryStore
 import com.geochina.app.ui.GeoChinaRoute
 import com.geochina.app.ui.GeoChinaViewModel
-import org.maplibre.android.MapLibre
-import org.maplibre.android.offline.OfflineManager
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,8 +23,9 @@ class MainActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT),
         )
-        MapLibre.getInstance(this)
-        OfflineManager.getInstance(this).setMaximumAmbientCacheSize(256L * 1024L * 1024L, null)
+        MapsInitializer.updatePrivacyShow(this, true, true)
+        MapsInitializer.updatePrivacyAgree(this, true)
+        MapsInitializer.sdcardDir = File(cacheDir, "amap").apply { mkdirs() }.absolutePath
         ChinaAdminDataset.initialize(this)
         val database = GeoChinaDatabase.get(this)
         val viewModel = ViewModelProvider(
