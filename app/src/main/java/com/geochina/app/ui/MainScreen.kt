@@ -1,7 +1,9 @@
 package com.geochina.app.ui
 
+import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -49,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,9 +60,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import com.geochina.app.R
 import com.geochina.app.data.ChinaAdminDataset
 import com.geochina.app.data.FavoriteRegionEntity
 import com.geochina.app.model.AdminLevel
@@ -82,6 +90,7 @@ fun GeoChinaRoute(viewModel: GeoChinaViewModel) {
     }
 
     GeoChinaTheme(themeMode = uiState.themeMode) {
+        FullScreenSystemBars(darkTheme = darkTheme)
         GeoChinaScreen(
             uiState = uiState,
             favorites = favorites,
@@ -101,6 +110,20 @@ fun GeoChinaRoute(viewModel: GeoChinaViewModel) {
             onFavoritesClosed = viewModel::closeFavoritesPage,
             onThemeClicked = viewModel::cycleThemeMode,
         )
+    }
+}
+
+@Composable
+private fun FullScreenSystemBars(darkTheme: Boolean) {
+    val view = LocalView.current
+    val window = (view.context as? Activity)?.window
+    if (view.isInEditMode || window == null) return
+
+    SideEffect {
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !darkTheme
+            isAppearanceLightNavigationBars = !darkTheme
+        }
     }
 }
 
@@ -128,11 +151,11 @@ private fun GeoChinaScreen(
     var overlapCandidates by remember { mutableStateOf<List<AdministrativeRegion>>(emptyList()) }
     var zoomCommand by remember { mutableStateOf<ZoomCommand?>(null) }
 
-    Scaffold { innerPadding ->
+    Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) {
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
+            modifier = Modifier.fillMaxSize(),
         ) {
             AdminMapCanvas(
                 currentLevel = uiState.currentLevel,
@@ -268,39 +291,66 @@ private fun SearchPanel(
             tonalElevation = 4.dp,
             shadowElevation = 4.dp,
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_geochina_logo),
+                        contentDescription = stringResource(R.string.app_name),
+                        modifier = Modifier.size(40.dp),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = stringResource(R.string.app_slogan),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    FilledTonalButton(
+                        onClick = onFavoritesClicked,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text("收藏")
+                    }
+                    FilledTonalButton(
+                        onClick = onThemeClicked,
+                        contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Text(themeMode.title)
+                    }
+                }
+
                 OutlinedTextField(
                     value = query,
                     onValueChange = {
                         focused = true
                         onQueryChanged(it)
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
                     placeholder = { Text("搜索省 / 市 / 区县") },
                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                 )
-                FilledTonalButton(
-                    onClick = onFavoritesClicked,
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text("收藏")
-                }
-                FilledTonalButton(
-                    onClick = onThemeClicked,
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    shape = RoundedCornerShape(8.dp),
-                ) {
-                    Text(themeMode.title)
-                }
             }
         }
 

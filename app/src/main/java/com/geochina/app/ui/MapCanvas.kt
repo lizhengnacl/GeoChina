@@ -35,7 +35,6 @@ import com.geochina.app.model.GeoPoint
 import com.geochina.app.model.GeoRect
 import kotlinx.coroutines.delay
 import kotlin.math.abs
-import kotlin.math.absoluteValue
 import kotlin.math.max
 import kotlin.math.min
 
@@ -455,7 +454,9 @@ private data class MapPalette(
     val label: Color,
     val selectedFill: Color,
     val selectedStroke: Color,
-    val fills: List<Color>,
+    val provinceFills: List<Color>,
+    val cityFills: List<Color>,
+    val countyFills: List<Color>,
     val nineDash: Color,
 )
 
@@ -470,37 +471,81 @@ private data class RegionDrawGroup(
 private fun mapPalette(darkTheme: Boolean): MapPalette =
     if (darkTheme) {
         MapPalette(
-            sea = Color(0xFF0F2027),
-            boundary = Color(0xFFB8C7D9),
-            label = Color(0xFFF2F5F7),
-            selectedFill = Color(0xFFDBB35F),
-            selectedStroke = Color(0xFFFFF1C2),
-            fills = listOf(
-                Color(0xFF28536B),
-                Color(0xFF3F6F5B),
-                Color(0xFF684C72),
-                Color(0xFF7A5B3E),
-                Color(0xFF3E5F8A),
-                Color(0xFF6B6A42),
+            sea = Color(0xFF18384C),
+            boundary = Color(0xFFD6B29A),
+            label = Color(0xFFFFF8EE),
+            selectedFill = Color(0xFFCF4A3D),
+            selectedStroke = Color(0xFFFFE2C8),
+            provinceFills = listOf(
+                Color(0xFF6F8F72),
+                Color(0xFF8F785C),
+                Color(0xFF647F9E),
+                Color(0xFF936D78),
+                Color(0xFF6B918E),
+                Color(0xFF8C875E),
+                Color(0xFF7B7399),
+                Color(0xFF9A6F58),
             ),
-            nineDash = Color(0xFF99BCD1),
+            cityFills = listOf(
+                Color(0xFF7EA480),
+                Color(0xFFA68D69),
+                Color(0xFF7595BA),
+                Color(0xFFA87E8B),
+                Color(0xFF78A7A2),
+                Color(0xFFA49F70),
+                Color(0xFF9186B1),
+                Color(0xFFB08367),
+            ),
+            countyFills = listOf(
+                Color(0xFF8CB889),
+                Color(0xFFBCA06E),
+                Color(0xFF86A8C9),
+                Color(0xFFBC8D9B),
+                Color(0xFF8ABBB5),
+                Color(0xFFB8B27B),
+                Color(0xFFA297C6),
+                Color(0xFFC49372),
+            ),
+            nineDash = Color(0xFFF0C49D),
         )
     } else {
         MapPalette(
-            sea = Color(0xFFDDEFF4),
-            boundary = Color(0xFF425567),
-            label = Color(0xFF102129),
-            selectedFill = Color(0xFFF3C85D),
-            selectedStroke = Color(0xFF6F4E00),
-            fills = listOf(
-                Color(0xFFA8D5BA),
-                Color(0xFFF1D795),
-                Color(0xFFB7C8E8),
-                Color(0xFFE8B4A0),
-                Color(0xFFB9D7D9),
-                Color(0xFFD5C0E8),
+            sea = Color(0xFFD6EBF7),
+            boundary = Color(0xFF9A5645),
+            label = Color(0xFF39271E),
+            selectedFill = Color(0xFFC7352A),
+            selectedStroke = Color(0xFF7E1E18),
+            provinceFills = listOf(
+                Color(0xFFF5D8A6),
+                Color(0xFFCFE5B6),
+                Color(0xFFBCD6EA),
+                Color(0xFFEFC0A8),
+                Color(0xFFC8E0DC),
+                Color(0xFFE7D2A0),
+                Color(0xFFD8C8E9),
+                Color(0xFFD8E0A9),
             ),
-            nineDash = Color(0xFF5D8799),
+            cityFills = listOf(
+                Color(0xFFF7C987),
+                Color(0xFFB8D99B),
+                Color(0xFFA9C9E6),
+                Color(0xFFE7A98F),
+                Color(0xFFAED7D1),
+                Color(0xFFE3CC7D),
+                Color(0xFFCAB6E1),
+                Color(0xFFC9D787),
+            ),
+            countyFills = listOf(
+                Color(0xFFFFD69A),
+                Color(0xFFC6E6A5),
+                Color(0xFFB7D8F0),
+                Color(0xFFF1B89E),
+                Color(0xFFBEE4DF),
+                Color(0xFFEBD88F),
+                Color(0xFFD9C4EE),
+                Color(0xFFD8E79A),
+            ),
+            nineDash = Color(0xFFB14A3D),
         )
     }
 
@@ -525,7 +570,7 @@ private fun DrawScope.drawLayer(
         val fill = if (selected) {
             palette.selectedFill
         } else {
-            palette.fills[(region.code.hashCode().absoluteValue + index) % palette.fills.size]
+            palette.colorFor(group.level, region, index)
         }
         drawPath(path, fill.copy(alpha = group.fillAlpha * alpha))
         drawPath(
@@ -537,6 +582,30 @@ private fun DrawScope.drawLayer(
     if (group.labelAlpha > 0f) {
         drawLabels(group.level, group.regions, alpha * group.labelAlpha, palette, scale, pan, worldToScreen, density)
     }
+}
+
+private fun MapPalette.colorFor(
+    level: AdminLevel,
+    region: AdministrativeRegion,
+    index: Int,
+): Color {
+    val palette = when (level) {
+        AdminLevel.Province -> provinceFills
+        AdminLevel.City -> cityFills
+        AdminLevel.County -> countyFills
+    }
+    val parentSeed = region.parentCode
+        ?.filter { it.isDigit() }
+        ?.takeLast(4)
+        ?.toIntOrNull()
+        ?: 0
+    val codeSeed = region.code
+        .filter { it.isDigit() }
+        .takeLast(2)
+        .toIntOrNull()
+        ?: index
+    val stride = 3
+    return palette[(index * stride + parentSeed + codeSeed) % palette.size]
 }
 
 private fun DrawScope.drawLabels(

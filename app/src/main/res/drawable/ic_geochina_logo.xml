@@ -1,0 +1,48 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#B7192B"
+        android:pathData="M10,4H38C41.31,4 44,6.69 44,10V38C44,41.31 41.31,44 38,44H10C6.69,44 4,41.31 4,38V10C4,6.69 6.69,4 10,4Z" />
+    <path
+        android:fillColor="#FFF2CC"
+        android:pathData="M13.5,15.2L23.5,10.5L34.8,14.2L37.2,33L25.6,38.2L12.2,33.8Z" />
+    <path
+        android:fillColor="#F5C96B"
+        android:pathData="M15.2,17L23.5,13L23.8,25.2L14.2,27.2Z" />
+    <path
+        android:fillColor="#FFE4A0"
+        android:pathData="M24.4,13.2L33,16L34.2,27.5L24.1,25.4Z" />
+    <path
+        android:fillColor="#F8D98C"
+        android:pathData="M14.1,28.5L23.9,26.6L25.1,35.4L14.4,32Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M25.2,27L34.4,28.8L35.1,32.1L26.3,36Z"
+        android:fillAlpha="0.86" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M13.5,15.2L23.5,10.5L34.8,14.2L37.2,33L25.6,38.2L12.2,33.8Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.35"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M23.5,10.5L23.9,26.5L25.6,38.2M13.7,27.7L24,25.5L35,27.8"
+        android:strokeColor="#B7192B"
+        android:strokeAlpha="0.72"
+        android:strokeWidth="1.15"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#B7192B"
+        android:pathData="M28.5,17.7C25.4,17.7 22.9,20.2 22.9,23.3C22.9,27.5 28.5,32.6 28.5,32.6C28.5,32.6 34.1,27.5 34.1,23.3C34.1,20.2 31.6,17.7 28.5,17.7Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28.5,20.8A2.5,2.5 0,1 0,28.5 25.8A2.5,2.5 0,1 0,28.5 20.8" />
+    <path
+        android:fillColor="#F5C96B"
+        android:pathData="M28.5,21.7L29.1,23H30.5L29.4,23.9L29.8,25.2L28.5,24.4L27.2,25.2L27.6,23.9L26.5,23H27.9Z" />
+</vector>
