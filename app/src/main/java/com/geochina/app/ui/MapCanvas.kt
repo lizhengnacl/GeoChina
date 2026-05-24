@@ -1,6 +1,7 @@
 package com.geochina.app.ui
 
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animate
@@ -34,12 +35,19 @@ import com.geochina.app.model.FocusRequest
 import com.geochina.app.model.GeoPoint
 import com.geochina.app.model.GeoRect
 import kotlinx.coroutines.delay
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.tan
 
 private const val MinMapScale = 0.85f
 private const val MaxMapScale = 80f
+private const val CityLevelMinScale = 3f
+private const val CountyLevelMinScale = 9.5f
+private const val CityLabelMinScale = 3.4f
+private const val CountyLabelMinScale = 11f
 
 @Composable
 fun AdminMapCanvas(
@@ -189,25 +197,28 @@ fun AdminMapCanvas(
                 RegionDrawGroup(
                     level = AdminLevel.Province,
                     regions = primary,
-                    fillAlpha = 0.82f,
-                    strokeAlpha = 0.65f,
+                    fillAlpha = 0.48f,
+                    strokeAlpha = 0.78f,
                     labelAlpha = 1f,
+                    emphasized = true,
                 ),
             )
             AdminLevel.City -> listOf(
                 RegionDrawGroup(
                     level = AdminLevel.Province,
                     regions = provinces,
-                    fillAlpha = 0.12f,
-                    strokeAlpha = 0.28f,
+                    fillAlpha = 0.06f,
+                    strokeAlpha = 0.2f,
                     labelAlpha = 0.42f,
+                    emphasized = false,
                 ),
                 RegionDrawGroup(
                     level = AdminLevel.City,
                     regions = primary,
-                    fillAlpha = 0.82f,
-                    strokeAlpha = 0.65f,
+                    fillAlpha = 0.56f,
+                    strokeAlpha = 0.76f,
                     labelAlpha = 1f,
+                    emphasized = true,
                 ),
             )
             AdminLevel.County -> {
@@ -223,23 +234,26 @@ fun AdminMapCanvas(
                     RegionDrawGroup(
                         level = AdminLevel.Province,
                         regions = provinces,
-                        fillAlpha = 0.08f,
-                        strokeAlpha = 0.22f,
+                        fillAlpha = 0.04f,
+                        strokeAlpha = 0.18f,
                         labelAlpha = 0.28f,
+                        emphasized = false,
                     ),
                     RegionDrawGroup(
                         level = AdminLevel.City,
                         regions = cityContext,
-                        fillAlpha = 0.14f,
-                        strokeAlpha = 0.34f,
+                        fillAlpha = 0.08f,
+                        strokeAlpha = 0.28f,
                         labelAlpha = 0.48f,
+                        emphasized = false,
                     ),
                     RegionDrawGroup(
                         level = AdminLevel.County,
                         regions = primary,
-                        fillAlpha = 0.82f,
-                        strokeAlpha = 0.65f,
+                        fillAlpha = 0.62f,
+                        strokeAlpha = 0.82f,
                         labelAlpha = 1f,
+                        emphasized = true,
                     ),
                 )
             }
@@ -344,7 +358,7 @@ fun AdminMapCanvas(
         )
         val minimumScale = when (region.level) {
             AdminLevel.Province -> 1.35f
-            AdminLevel.City -> 3.1f
+            AdminLevel.City -> 4f
             AdminLevel.County -> 14f
         }
         val targetScale = max(fitScale, minimumScale).coerceIn(0.95f, MaxMapScale)
@@ -404,7 +418,13 @@ fun AdminMapCanvas(
                 }
             },
     ) {
-        drawRect(palette.sea)
+        drawOfflineBasemap(
+            palette = palette,
+            scale = scale,
+            pan = pan,
+            worldToScreen = ::worldToScreen,
+            density = density.density,
+        )
         drawAuxiliaryBoundaries(
             palette = palette,
             scale = scale,
@@ -450,7 +470,14 @@ data class ZoomCommand(
 
 private data class MapPalette(
     val sea: Color,
+    val land: Color,
+    val landAlt: Color,
+    val coastline: Color,
+    val basemapBoundary: Color,
+    val graticule: Color,
+    val graticuleLabel: Color,
     val boundary: Color,
+    val focusBoundary: Color,
     val label: Color,
     val selectedFill: Color,
     val selectedStroke: Color,
@@ -466,13 +493,21 @@ private data class RegionDrawGroup(
     val fillAlpha: Float,
     val strokeAlpha: Float,
     val labelAlpha: Float,
+    val emphasized: Boolean,
 )
 
 private fun mapPalette(darkTheme: Boolean): MapPalette =
     if (darkTheme) {
         MapPalette(
             sea = Color(0xFF18384C),
+            land = Color(0xFF263F34),
+            landAlt = Color(0xFF314737),
+            coastline = Color(0xFFC7D5B7),
+            basemapBoundary = Color(0xFFB7A98D),
+            graticule = Color(0xFF9EB3BE),
+            graticuleLabel = Color(0xFFD7E3E7),
             boundary = Color(0xFFD6B29A),
+            focusBoundary = Color(0xFFFFE2A8),
             label = Color(0xFFFFF8EE),
             selectedFill = Color(0xFFCF4A3D),
             selectedStroke = Color(0xFFFFE2C8),
@@ -511,7 +546,14 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
     } else {
         MapPalette(
             sea = Color(0xFFD6EBF7),
+            land = Color(0xFFF2E6C7),
+            landAlt = Color(0xFFE9DDBB),
+            coastline = Color(0xFF487A8E),
+            basemapBoundary = Color(0xFF8B7A59),
+            graticule = Color(0xFF77AFC4),
+            graticuleLabel = Color(0xFF4B8294),
             boundary = Color(0xFF9A5645),
+            focusBoundary = Color(0xFFD54431),
             label = Color(0xFF39271E),
             selectedFill = Color(0xFFC7352A),
             selectedStroke = Color(0xFF7E1E18),
@@ -564,6 +606,11 @@ private fun DrawScope.drawLayer(
         AdminLevel.City -> 1.0f
         AdminLevel.County -> 0.7f
     } * density * (1f / scale).coerceIn(0.35f, 1f)
+    val focusStrokeWidth = strokeWidth * when (group.level) {
+        AdminLevel.Province -> 1.25f
+        AdminLevel.City -> 1.45f
+        AdminLevel.County -> 1.65f
+    }
     group.regions.forEachIndexed { index, region ->
         val path = region.toPath { point -> worldToScreen(point, IntSize(size.width.toInt(), size.height.toInt()), scale, pan) }
         val selected = region.code == selectedCode
@@ -572,11 +619,23 @@ private fun DrawScope.drawLayer(
         } else {
             palette.colorFor(group.level, region, index)
         }
-        drawPath(path, fill.copy(alpha = group.fillAlpha * alpha))
+        val fillAlpha = if (selected) max(group.fillAlpha, 0.88f) else group.fillAlpha
+        drawPath(path, fill.copy(alpha = fillAlpha * alpha))
+        val strokeColor = when {
+            selected -> palette.selectedStroke.copy(alpha = alpha)
+            group.emphasized -> palette.focusBoundary.copy(alpha = max(group.strokeAlpha, 0.96f) * alpha)
+            else -> palette.boundary.copy(alpha = group.strokeAlpha * alpha)
+        }
         drawPath(
             path = path,
-            color = if (selected) palette.selectedStroke.copy(alpha = alpha) else palette.boundary.copy(alpha = group.strokeAlpha * alpha),
-            style = Stroke(width = if (selected) strokeWidth * 2.4f else strokeWidth),
+            color = strokeColor,
+            style = Stroke(
+                width = when {
+                    selected -> strokeWidth * 2.4f
+                    group.emphasized -> focusStrokeWidth
+                    else -> strokeWidth
+                },
+            ),
         )
     }
     if (group.labelAlpha > 0f) {
@@ -620,8 +679,8 @@ private fun DrawScope.drawLabels(
 ) {
     val minScale = when (level) {
         AdminLevel.Province -> 0f
-        AdminLevel.City -> 1.25f
-        AdminLevel.County -> 3.7f
+        AdminLevel.City -> CityLabelMinScale
+        AdminLevel.County -> CountyLabelMinScale
     }
     if (scale < minScale) return
     val textSize = when (level) {
@@ -635,12 +694,160 @@ private fun DrawScope.drawLabels(
         typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
         this.textSize = textSize
     }
+    val canvasSize = IntSize(size.width.toInt(), size.height.toInt())
+    val minRegionWidth = when (level) {
+        AdminLevel.Province -> 28f
+        AdminLevel.City -> 58f
+        AdminLevel.County -> 72f
+    } * density
+    val minRegionHeight = when (level) {
+        AdminLevel.Province -> 18f
+        AdminLevel.City -> 36f
+        AdminLevel.County -> 44f
+    } * density
+    val maxLabels = when (level) {
+        AdminLevel.Province -> 40
+        AdminLevel.City -> if (scale < 5.5f) 14 else 24
+        AdminLevel.County -> if (scale < 15f) 10 else 18
+    }
+    val visibleLabels = regions.mapNotNull { region ->
+        val bounds = region.projectedScreenBounds(canvasSize, scale, pan, worldToScreen)
+        if (bounds.right < -80f || bounds.left > size.width + 80f || bounds.bottom < -60f || bounds.top > size.height + 60f) {
+            return@mapNotNull null
+        }
+        val textWidth = paint.measureText(region.name)
+        if (bounds.width() < max(minRegionWidth, textWidth * 1.08f) || bounds.height() < minRegionHeight) {
+            return@mapNotNull null
+        }
+        val point = worldToScreen(region.centroid, canvasSize, scale, pan)
+        val labelBounds = RectF(
+            point.x - textWidth / 2f - 5f * density,
+            point.y - textSize - 4f * density,
+            point.x + textWidth / 2f + 5f * density,
+            point.y + 5f * density,
+        )
+        ProjectedLabel(
+            text = region.name,
+            point = point,
+            bounds = labelBounds,
+            screenArea = bounds.width() * bounds.height(),
+        )
+    }.sortedByDescending { it.screenArea }
+
     drawContext.canvas.nativeCanvas.apply {
-        regions.forEach { region ->
-            val point = worldToScreen(region.centroid, IntSize(size.width.toInt(), size.height.toInt()), scale, pan)
-            if (point.x in -80f..(size.width + 80f) && point.y in -40f..(size.height + 40f)) {
-                drawText(region.name, point.x, point.y, paint)
+        val occupied = mutableListOf<RectF>()
+        var drawn = 0
+        for (label in visibleLabels) {
+            if (drawn >= maxLabels) break
+            if (occupied.any { RectF.intersects(it, label.bounds) }) continue
+            if (label.point.x in -80f..(size.width + 80f) && label.point.y in -40f..(size.height + 40f)) {
+                drawText(label.text, label.point.x, label.point.y, paint)
+                occupied += label.bounds
+                drawn += 1
             }
+        }
+    }
+}
+
+private fun DrawScope.drawOfflineBasemap(
+    palette: MapPalette,
+    scale: Float,
+    pan: Offset,
+    worldToScreen: (GeoPoint, IntSize, Float, Offset) -> Offset,
+    density: Float,
+) {
+    val canvasSize = IntSize(size.width.toInt(), size.height.toInt())
+    val provinces = ChinaAdminDataset.regionsForLevel(AdminLevel.Province)
+    val mapLineScale = (1f / scale).coerceIn(0.45f, 1f)
+    val provinceStroke = 0.65f * density * mapLineScale
+    val coastlineStroke = 1.15f * density * mapLineScale
+
+    drawRect(palette.sea)
+    provinces.forEachIndexed { index, province ->
+        val path = province.toPath { point -> worldToScreen(point, canvasSize, scale, pan) }
+        drawPath(
+            path = path,
+            color = if (index % 2 == 0) palette.land else palette.landAlt,
+        )
+    }
+    drawGraticule(palette, scale, pan, worldToScreen, density)
+    provinces.forEach { province ->
+        val path = province.toPath { point -> worldToScreen(point, canvasSize, scale, pan) }
+        drawPath(
+            path = path,
+            color = palette.basemapBoundary.copy(alpha = 0.42f),
+            style = Stroke(width = provinceStroke),
+        )
+        drawPath(
+            path = path,
+            color = palette.coastline.copy(alpha = 0.34f),
+            style = Stroke(width = coastlineStroke),
+        )
+    }
+    drawBasemapLabels(palette, scale, pan, worldToScreen, density)
+}
+
+private fun DrawScope.drawGraticule(
+    palette: MapPalette,
+    scale: Float,
+    pan: Offset,
+    worldToScreen: (GeoPoint, IntSize, Float, Offset) -> Offset,
+    density: Float,
+) {
+    if (scale > 22f) return
+    val canvasSize = IntSize(size.width.toInt(), size.height.toInt())
+    val strokeWidth = 0.45f * density * (1f / scale).coerceIn(0.55f, 1f)
+
+    fun drawProjectedLine(points: List<GeoPoint>) {
+        val path = Path()
+        points.forEachIndexed { index, point ->
+            val screen = worldToScreen(point, canvasSize, scale, pan)
+            if (index == 0) path.moveTo(screen.x, screen.y) else path.lineTo(screen.x, screen.y)
+        }
+        drawPath(
+            path = path,
+            color = palette.graticule.copy(alpha = 0.28f),
+            style = Stroke(width = strokeWidth),
+        )
+    }
+
+    for (longitude in 70..140 step 10) {
+        drawProjectedLine((5..60 step 2).map { latitude ->
+            projectLongitudeLatitude(longitude.toFloat(), latitude.toFloat())
+        })
+    }
+    for (latitude in 10..60 step 10) {
+        drawProjectedLine((70..140 step 2).map { longitude ->
+            projectLongitudeLatitude(longitude.toFloat(), latitude.toFloat())
+        })
+    }
+}
+
+private fun DrawScope.drawBasemapLabels(
+    palette: MapPalette,
+    scale: Float,
+    pan: Offset,
+    worldToScreen: (GeoPoint, IntSize, Float, Offset) -> Offset,
+    density: Float,
+) {
+    if (scale > 7f) return
+    val canvasSize = IntSize(size.width.toInt(), size.height.toInt())
+    val labels = listOf(
+        BasemapLabel("中国", 104f, 35f, 22f, true),
+        BasemapLabel("南海", 114f, 14f, 13f, false),
+        BasemapLabel("东海", 124f, 28f, 13f, false),
+    )
+    drawContext.canvas.nativeCanvas.apply {
+        labels.forEach { label ->
+            val point = worldToScreen(projectLongitudeLatitude(label.longitude, label.latitude), canvasSize, scale, pan)
+            if (point.x !in -120f..(size.width + 120f) || point.y !in -80f..(size.height + 80f)) return@forEach
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.graticuleLabel.copy(alpha = if (label.primary) 0.28f else 0.36f).toArgbInt()
+                textAlign = Paint.Align.CENTER
+                typeface = Typeface.create(Typeface.SANS_SERIF, if (label.primary) Typeface.BOLD else Typeface.NORMAL)
+                textSize = label.textSizeSp * density * (1f / scale).coerceIn(0.62f, 1f)
+            }
+            drawText(label.text, point.x, point.y, paint)
         }
     }
 }
@@ -672,6 +879,21 @@ private fun DrawScope.drawAuxiliaryBoundaries(
     }
 }
 
+private data class BasemapLabel(
+    val text: String,
+    val longitude: Float,
+    val latitude: Float,
+    val textSizeSp: Float,
+    val primary: Boolean,
+)
+
+private data class ProjectedLabel(
+    val text: String,
+    val point: Offset,
+    val bounds: RectF,
+    val screenArea: Float,
+)
+
 private fun AdministrativeRegion.toPath(project: (GeoPoint) -> Offset): Path {
     val path = Path()
     polygons.forEach { polygon ->
@@ -682,6 +904,28 @@ private fun AdministrativeRegion.toPath(project: (GeoPoint) -> Offset): Path {
         path.close()
     }
     return path
+}
+
+private fun AdministrativeRegion.projectedScreenBounds(
+    canvasSize: IntSize,
+    scale: Float,
+    pan: Offset,
+    worldToScreen: (GeoPoint, IntSize, Float, Offset) -> Offset,
+): RectF {
+    var left = Float.POSITIVE_INFINITY
+    var top = Float.POSITIVE_INFINITY
+    var right = Float.NEGATIVE_INFINITY
+    var bottom = Float.NEGATIVE_INFINITY
+    polygons.forEach { polygon ->
+        polygon.forEach { point ->
+            val screen = worldToScreen(point, canvasSize, scale, pan)
+            left = min(left, screen.x)
+            top = min(top, screen.y)
+            right = max(right, screen.x)
+            bottom = max(bottom, screen.y)
+        }
+    }
+    return RectF(left, top, right, bottom)
 }
 
 private fun polygonContains(polygon: List<GeoPoint>, point: GeoPoint): Boolean {
@@ -701,8 +945,8 @@ private fun polygonContains(polygon: List<GeoPoint>, point: GeoPoint): Boolean {
 }
 
 private fun levelForScale(scale: Float): AdminLevel = when {
-    scale < 2.15f -> AdminLevel.Province
-    scale < 3.8f -> AdminLevel.City
+    scale < CityLevelMinScale -> AdminLevel.Province
+    scale < CountyLevelMinScale -> AdminLevel.City
     else -> AdminLevel.County
 }
 
@@ -710,6 +954,12 @@ private fun distanceSquared(first: GeoPoint, second: GeoPoint): Float {
     val dx = first.x - second.x
     val dy = first.y - second.y
     return dx * dx + dy * dy
+}
+
+private fun projectLongitudeLatitude(longitude: Float, latitude: Float): GeoPoint {
+    val clampedLatitude = latitude.coerceIn(-85f, 85f)
+    val mercatorY = ln(tan(PI / 4.0 + Math.toRadians(clampedLatitude.toDouble()) / 2.0)) * 180.0 / PI
+    return GeoPoint(longitude, -mercatorY.toFloat())
 }
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float = start + (stop - start) * fraction
