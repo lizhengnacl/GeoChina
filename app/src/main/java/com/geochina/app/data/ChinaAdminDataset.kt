@@ -7,6 +7,13 @@ import com.geochina.app.model.AdministrativeRegion
 import com.geochina.app.model.GeoPoint
 import com.geochina.app.model.GeoRect
 import com.geochina.app.model.RegionStats
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.PI
@@ -24,8 +31,16 @@ object ChinaAdminDataset {
         Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val mutableLoadVersion = MutableStateFlow(0)
+
     @Volatile
     private var data: Dataset? = null
+
+    @Volatile
+    private var preloadStarted = false
+
+    val loadVersion: StateFlow<Int> = mutableLoadVersion.asStateFlow()
 
     val regions: List<AdministrativeRegion>
         get() = requireData().regions
@@ -40,12 +55,17 @@ object ChinaAdminDataset {
         if (data != null) return
         synchronized(this) {
             if (data == null) {
-                data = loadDataset(context.applicationContext)
+                data = loadProvinceDataset(context.applicationContext)
+                mutableLoadVersion.value += 1
             }
         }
+        preloadDetails(context.applicationContext)
     }
 
     fun region(code: String): AdministrativeRegion? = requireData().byCode[code]
+
+    fun regionForLevel(code: String, level: AdminLevel): AdministrativeRegion? =
+        requireData().byLevel[level].orEmpty().firstOrNull { it.code == code }
 
     fun regionsForLevel(level: AdminLevel): List<AdministrativeRegion> = requireData().byLevel[level].orEmpty()
 
@@ -75,23 +95,58 @@ object ChinaAdminDataset {
     private fun requireData(): Dataset =
         data ?: error("ChinaAdminDataset.initialize(context) must be called before use.")
 
-    private fun loadDataset(context: Context): Dataset {
+    private fun preloadDetails(context: Context) {
+        if (preloadStarted) return
+        synchronized(this) {
+            if (preloadStarted) return
+            preloadStarted = true
+        }
+        scope.launch {
+            val provinceRaw = parseGeoJson(
+                json = readAsset(context, PROVINCE_ASSET),
+                forcedLevel = AdminLevel.Province,
+                includeAuxiliary = true,
+            )
+            val cityRaw = parseGeoJson(
+                json = readAsset(context, CITY_ASSET),
+                forcedLevel = AdminLevel.City,
+                includeAuxiliary = false,
+            )
+            data = buildDataset(
+                rawRegions = provinceRaw.regions + cityRaw.regions,
+                auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+            )
+            mutableLoadVersion.value += 1
+
+            val countyRaw = parseGeoJson(
+                json = readAsset(context, COUNTY_ASSET),
+                forcedLevel = AdminLevel.County,
+                includeAuxiliary = false,
+            )
+            data = buildDataset(
+                rawRegions = provinceRaw.regions + cityRaw.regions + countyRaw.regions,
+                auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+            )
+            mutableLoadVersion.value += 1
+        }
+    }
+
+    private fun loadProvinceDataset(context: Context): Dataset {
         val provinceRaw = parseGeoJson(
             json = readAsset(context, PROVINCE_ASSET),
             forcedLevel = AdminLevel.Province,
             includeAuxiliary = true,
         )
-        val cityRaw = parseGeoJson(
-            json = readAsset(context, CITY_ASSET),
-            forcedLevel = AdminLevel.City,
-            includeAuxiliary = false,
+        return buildDataset(
+            rawRegions = provinceRaw.regions,
+            auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
         )
-        val countyRaw = parseGeoJson(
-            json = readAsset(context, COUNTY_ASSET),
-            forcedLevel = AdminLevel.County,
-            includeAuxiliary = false,
-        )
-        val rawRegions = provinceRaw.regions + cityRaw.regions + countyRaw.regions
+    }
+
+    private fun buildDataset(
+        rawRegions: List<AdministrativeRegion>,
+        auxiliaryPolygons: List<List<GeoPoint>>,
+    ): Dataset {
         val nameByCode = mutableMapOf("100000" to "中国")
         rawRegions.forEach { raw ->
             nameByCode.putIfAbsent(raw.code, raw.name)
@@ -110,7 +165,10 @@ object ChinaAdminDataset {
                 subdivisionNames = children.map { it.name },
             )
         }
-        val bounds = computeBounds(provinceRaw.regions.flatMap { it.polygons } + provinceRaw.auxiliaryPolygons)
+        val provincePolygons = rawRegions
+            .filter { it.level == AdminLevel.Province }
+            .flatMap { it.polygons }
+        val bounds = computeBounds(provincePolygons + auxiliaryPolygons)
         return Dataset(
             regions = regions,
             byCode = regions
@@ -124,10 +182,10 @@ object ChinaAdminDataset {
                     levelEntry.value
                         .groupBy { it.parentCode.orEmpty() }
                         .mapValues { parentEntry -> parentEntry.value.sortedBy { it.code } }
-                },
+            },
             childrenByParent = childrenByParent,
             worldBounds = bounds,
-            auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+            auxiliaryPolygons = auxiliaryPolygons,
         )
     }
 

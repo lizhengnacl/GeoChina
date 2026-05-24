@@ -168,7 +168,7 @@ private fun GeoChinaScreen(
             )
 
             ZoomControls(
-                onZoomIn = { zoomCommand = ZoomCommand(1.35f, System.nanoTime()) },
+                onZoomIn = { zoomCommand = ZoomCommand(1.7f, System.nanoTime()) },
                 onZoomOut = { zoomCommand = ZoomCommand(0.74f, System.nanoTime()) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

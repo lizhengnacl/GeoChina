@@ -39,6 +39,9 @@ import kotlin.math.absoluteValue
 import kotlin.math.max
 import kotlin.math.min
 
+private const val MinMapScale = 0.85f
+private const val MaxMapScale = 80f
+
 @Composable
 fun AdminMapCanvas(
     currentLevel: AdminLevel,
@@ -58,6 +61,8 @@ fun AdminMapCanvas(
     var pan by remember { mutableStateOf(Offset.Zero) }
     var renderedLevel by remember { mutableStateOf(currentLevel) }
     var previousLevel by remember { mutableStateOf(currentLevel) }
+    var stableProvinceCode by remember { mutableStateOf<String?>(null) }
+    var stableCityCode by remember { mutableStateOf<String?>(null) }
     val transition = remember { Animatable(1f) }
 
     fun baseScaleFor(size: IntSize): Float {
@@ -135,33 +140,33 @@ fun AdminMapCanvas(
         val point = viewportCenterWorld()
         val provinces = ChinaAdminDataset.regionsForLevel(AdminLevel.Province)
         return regionAt(point, provinces)
-            ?: nearestVisibleRegion(point, provinces)
+            ?: stableProvinceCode?.let { ChinaAdminDataset.regionForLevel(it, AdminLevel.Province) }
             ?: selectedAncestor(AdminLevel.Province)
+            ?: nearestVisibleRegion(point, provinces)
     }
 
     fun focusedCity(): AdministrativeRegion? {
         val point = viewportCenterWorld()
         val provinceCode = focusedProvince()?.code
-        val cityCandidates = if (provinceCode == null) {
-            ChinaAdminDataset.regionsForLevel(AdminLevel.City)
-        } else {
-            ChinaAdminDataset.regionsForParent(AdminLevel.City, provinceCode)
-        }
+        val cityCandidates = provinceCode
+            ?.let { ChinaAdminDataset.regionsForParent(AdminLevel.City, it) }
+            .orEmpty()
         return regionAt(point, cityCandidates)
+            ?: stableCityCode
+                ?.let { ChinaAdminDataset.regionForLevel(it, AdminLevel.City) }
+                ?.takeIf { it.parentCode == provinceCode }
+            ?: selectedAncestor(AdminLevel.City)?.takeIf { it.parentCode == provinceCode }
             ?: nearestVisibleRegion(point, cityCandidates)
-            ?: selectedAncestor(AdminLevel.City)
     }
 
-    fun displayedRegions(level: AdminLevel): List<AdministrativeRegion> {
+    fun primaryRegions(level: AdminLevel): List<AdministrativeRegion> {
         return when (level) {
             AdminLevel.Province -> ChinaAdminDataset.regionsForLevel(AdminLevel.Province)
             AdminLevel.City -> {
                 val parentCode = focusedProvince()?.code
-                if (parentCode == null) {
-                    visibleRegions(ChinaAdminDataset.regionsForLevel(AdminLevel.City), viewportWorldBounds())
-                } else {
-                    ChinaAdminDataset.regionsForParent(AdminLevel.City, parentCode)
-                }
+                parentCode
+                    ?.let { ChinaAdminDataset.regionsForParent(AdminLevel.City, it) }
+                    .orEmpty()
             }
             AdminLevel.County -> {
                 val city = focusedCity()
@@ -171,12 +176,75 @@ fun AdminMapCanvas(
                 } else {
                     val provinceCode = city?.parentCode ?: focusedProvince()?.code
                     val directChildren = provinceCode?.let { ChinaAdminDataset.regionsForParent(AdminLevel.County, it) }.orEmpty()
-                    directChildren.ifEmpty {
-                        visibleRegions(ChinaAdminDataset.regionsForLevel(AdminLevel.County), viewportWorldBounds())
-                    }
+                    directChildren
                 }
             }
         }
+    }
+
+    fun renderGroups(level: AdminLevel): List<RegionDrawGroup> {
+        val provinces = ChinaAdminDataset.regionsForLevel(AdminLevel.Province)
+        val primary = primaryRegions(level)
+        return when (level) {
+            AdminLevel.Province -> listOf(
+                RegionDrawGroup(
+                    level = AdminLevel.Province,
+                    regions = primary,
+                    fillAlpha = 0.82f,
+                    strokeAlpha = 0.65f,
+                    labelAlpha = 1f,
+                ),
+            )
+            AdminLevel.City -> listOf(
+                RegionDrawGroup(
+                    level = AdminLevel.Province,
+                    regions = provinces,
+                    fillAlpha = 0.12f,
+                    strokeAlpha = 0.28f,
+                    labelAlpha = 0.42f,
+                ),
+                RegionDrawGroup(
+                    level = AdminLevel.City,
+                    regions = primary,
+                    fillAlpha = 0.82f,
+                    strokeAlpha = 0.65f,
+                    labelAlpha = 1f,
+                ),
+            )
+            AdminLevel.County -> {
+                val focusedProvinceCode = focusedProvince()?.code
+                val focusedCityCode = focusedCity()?.code
+                val primaryCodes = primary.mapTo(mutableSetOf()) { it.code }
+                val cityContext = focusedProvinceCode
+                    ?.let { ChinaAdminDataset.regionsForParent(AdminLevel.City, it) }
+                    .orEmpty()
+                    .filterNot { it.code == focusedCityCode || it.code in primaryCodes }
+
+                listOf(
+                    RegionDrawGroup(
+                        level = AdminLevel.Province,
+                        regions = provinces,
+                        fillAlpha = 0.08f,
+                        strokeAlpha = 0.22f,
+                        labelAlpha = 0.28f,
+                    ),
+                    RegionDrawGroup(
+                        level = AdminLevel.City,
+                        regions = cityContext,
+                        fillAlpha = 0.14f,
+                        strokeAlpha = 0.34f,
+                        labelAlpha = 0.48f,
+                    ),
+                    RegionDrawGroup(
+                        level = AdminLevel.County,
+                        regions = primary,
+                        fillAlpha = 0.82f,
+                        strokeAlpha = 0.65f,
+                        labelAlpha = 1f,
+                    ),
+                )
+            }
+        }.filter { it.regions.isNotEmpty() }
     }
 
     fun targetPanFor(region: AdministrativeRegion, targetScale: Float): Offset {
@@ -187,7 +255,7 @@ fun AdminMapCanvas(
     fun zoomAround(screenPoint: Offset, factor: Float) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return
         val worldPoint = screenToWorld(screenPoint)
-        val newScale = (scale * factor).coerceIn(0.85f, 8f)
+        val newScale = (scale * factor).coerceIn(MinMapScale, MaxMapScale)
         val baseScale = baseScaleFor(canvasSize)
         val center = screenCenter(canvasSize)
         val bounds = ChinaAdminDataset.worldBounds
@@ -201,8 +269,15 @@ fun AdminMapCanvas(
     fun handleTap(screenPoint: Offset) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return
         val worldPoint = screenToWorld(screenPoint)
-        val candidates = displayedRegions(renderedLevel)
-            .filter { region -> region.polygons.any { polygon -> polygonContains(polygon, worldPoint) } }
+        val seenCodes = mutableSetOf<String>()
+        val candidates = renderGroups(renderedLevel)
+            .asReversed()
+            .flatMap { it.regions }
+            .filter { region ->
+                seenCodes.add(region.code) &&
+                    region.bounds.contains(worldPoint) &&
+                    region.polygons.any { polygon -> polygonContains(polygon, worldPoint) }
+            }
         if (candidates.isEmpty()) {
             onBlankTap()
         } else {
@@ -213,6 +288,42 @@ fun AdminMapCanvas(
     LaunchedEffect(scale) {
         delay(140)
         onLevelChanged(levelForScale(scale))
+    }
+
+    LaunchedEffect(canvasSize, pan, scale, selectedRegion?.code) {
+        if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
+        val center = viewportCenterWorld()
+        val provinces = ChinaAdminDataset.regionsForLevel(AdminLevel.Province)
+        val centerProvince = regionAt(center, provinces)
+        val selectedProvince = selectedAncestor(AdminLevel.Province)
+        val retainedProvince = stableProvinceCode?.let { ChinaAdminDataset.regionForLevel(it, AdminLevel.Province) }
+        val nextProvince = centerProvince
+            ?: retainedProvince
+            ?: selectedProvince
+            ?: nearestVisibleRegion(center, provinces)
+
+        if (nextProvince?.code != stableProvinceCode) {
+            stableProvinceCode = nextProvince?.code
+            stableCityCode = null
+        }
+
+        val cityCandidates = nextProvince
+            ?.let { ChinaAdminDataset.regionsForParent(AdminLevel.City, it.code) }
+            .orEmpty()
+        val centerCity = regionAt(center, cityCandidates)
+        val retainedCity = stableCityCode
+            ?.let { ChinaAdminDataset.regionForLevel(it, AdminLevel.City) }
+            ?.takeIf { it.parentCode == nextProvince?.code }
+        val selectedCity = selectedAncestor(AdminLevel.City)
+            ?.takeIf { it.parentCode == nextProvince?.code }
+        val nextCity = centerCity
+            ?: retainedCity
+            ?: selectedCity
+            ?: nearestVisibleRegion(center, cityCandidates)
+
+        if (nextCity?.code != stableCityCode) {
+            stableCityCode = nextCity?.code
+        }
     }
 
     LaunchedEffect(currentLevel) {
@@ -235,9 +346,9 @@ fun AdminMapCanvas(
         val minimumScale = when (region.level) {
             AdminLevel.Province -> 1.35f
             AdminLevel.City -> 3.1f
-            AdminLevel.County -> 5.2f
+            AdminLevel.County -> 14f
         }
-        val targetScale = max(fitScale, minimumScale).coerceIn(0.95f, 8f)
+        val targetScale = max(fitScale, minimumScale).coerceIn(0.95f, MaxMapScale)
         val targetPan = targetPanFor(region, targetScale)
         val startScale = scale
         val startPan = pan
@@ -305,10 +416,23 @@ fun AdminMapCanvas(
         val selectedCode = selectedRegion?.code
         val progress = transition.value
         if (progress < 1f && previousLevel != renderedLevel) {
+            renderGroups(previousLevel).forEach { group ->
+                drawLayer(
+                    group = group,
+                    alpha = 1f - progress,
+                    selectedCode = selectedCode,
+                    palette = palette,
+                    scale = scale,
+                    pan = pan,
+                    worldToScreen = ::worldToScreen,
+                    density = density.density,
+                )
+            }
+        }
+        renderGroups(renderedLevel).forEach { group ->
             drawLayer(
-                level = previousLevel,
-                regions = displayedRegions(previousLevel),
-                alpha = 1f - progress,
+                group = group,
+                alpha = progress,
                 selectedCode = selectedCode,
                 palette = palette,
                 scale = scale,
@@ -317,17 +441,6 @@ fun AdminMapCanvas(
                 density = density.density,
             )
         }
-        drawLayer(
-            level = renderedLevel,
-            regions = displayedRegions(renderedLevel),
-            alpha = progress,
-            selectedCode = selectedCode,
-            palette = palette,
-            scale = scale,
-            pan = pan,
-            worldToScreen = ::worldToScreen,
-            density = density.density,
-        )
     }
 }
 
@@ -344,6 +457,14 @@ private data class MapPalette(
     val selectedStroke: Color,
     val fills: List<Color>,
     val nineDash: Color,
+)
+
+private data class RegionDrawGroup(
+    val level: AdminLevel,
+    val regions: List<AdministrativeRegion>,
+    val fillAlpha: Float,
+    val strokeAlpha: Float,
+    val labelAlpha: Float,
 )
 
 private fun mapPalette(darkTheme: Boolean): MapPalette =
@@ -384,8 +505,7 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
     }
 
 private fun DrawScope.drawLayer(
-    level: AdminLevel,
-    regions: List<AdministrativeRegion>,
+    group: RegionDrawGroup,
     alpha: Float,
     selectedCode: String?,
     palette: MapPalette,
@@ -394,12 +514,12 @@ private fun DrawScope.drawLayer(
     worldToScreen: (GeoPoint, IntSize, Float, Offset) -> Offset,
     density: Float,
 ) {
-    val strokeWidth = when (level) {
+    val strokeWidth = when (group.level) {
         AdminLevel.Province -> 1.4f
         AdminLevel.City -> 1.0f
         AdminLevel.County -> 0.7f
     } * density * (1f / scale).coerceIn(0.35f, 1f)
-    regions.forEachIndexed { index, region ->
+    group.regions.forEachIndexed { index, region ->
         val path = region.toPath { point -> worldToScreen(point, IntSize(size.width.toInt(), size.height.toInt()), scale, pan) }
         val selected = region.code == selectedCode
         val fill = if (selected) {
@@ -407,14 +527,16 @@ private fun DrawScope.drawLayer(
         } else {
             palette.fills[(region.code.hashCode().absoluteValue + index) % palette.fills.size]
         }
-        drawPath(path, fill.copy(alpha = 0.82f * alpha))
+        drawPath(path, fill.copy(alpha = group.fillAlpha * alpha))
         drawPath(
             path = path,
-            color = if (selected) palette.selectedStroke.copy(alpha = alpha) else palette.boundary.copy(alpha = 0.65f * alpha),
+            color = if (selected) palette.selectedStroke.copy(alpha = alpha) else palette.boundary.copy(alpha = group.strokeAlpha * alpha),
             style = Stroke(width = if (selected) strokeWidth * 2.4f else strokeWidth),
         )
     }
-    drawLabels(level, regions, alpha, palette, scale, pan, worldToScreen, density)
+    if (group.labelAlpha > 0f) {
+        drawLabels(group.level, group.regions, alpha * group.labelAlpha, palette, scale, pan, worldToScreen, density)
+    }
 }
 
 private fun DrawScope.drawLabels(
@@ -511,15 +633,9 @@ private fun polygonContains(polygon: List<GeoPoint>, point: GeoPoint): Boolean {
 
 private fun levelForScale(scale: Float): AdminLevel = when {
     scale < 2.15f -> AdminLevel.Province
-    scale < 4.65f -> AdminLevel.City
+    scale < 3.8f -> AdminLevel.City
     else -> AdminLevel.County
 }
-
-private fun visibleRegions(
-    regions: List<AdministrativeRegion>,
-    viewportBounds: GeoRect,
-): List<AdministrativeRegion> =
-    regions.filter { it.bounds.intersects(viewportBounds) }
 
 private fun distanceSquared(first: GeoPoint, second: GeoPoint): Float {
     val dx = first.x - second.x

@@ -35,6 +35,7 @@ data class GeoChinaUiState(
     val bottomSheetVisible: Boolean = false,
     val favoritesVisible: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.System,
+    val dataVersion: Int = 0,
 )
 
 class GeoChinaViewModel(
@@ -52,7 +53,20 @@ class GeoChinaViewModel(
     val uiState: StateFlow<GeoChinaUiState> = combine(
         mutableState,
         favoriteCodes,
-    ) { state, _ -> state }
+        ChinaAdminDataset.loadVersion,
+    ) { state, _, dataVersion ->
+        val selectedRegion = state.selectedRegion
+            ?.let { ChinaAdminDataset.regionForLevel(it.code, it.level) ?: it }
+        state.copy(
+            selectedRegion = selectedRegion,
+            dataVersion = dataVersion,
+            searchResults = if (state.searchQuery.isBlank()) {
+                state.searchResults
+            } else {
+                ChinaAdminDataset.search(state.searchQuery)
+            },
+        )
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), mutableState.value)
 
     fun onLevelChanged(level: AdminLevel) {
@@ -135,4 +149,3 @@ class GeoChinaViewModel(
         }
     }
 }
-
