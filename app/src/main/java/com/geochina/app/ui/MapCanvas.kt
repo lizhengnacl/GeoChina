@@ -50,10 +50,12 @@ import kotlin.math.tan
 
 private const val MinMapScale = 0.85f
 private const val MaxMapScale = 80f
-private const val CityLevelMinScale = 3f
-private const val CountyLevelMinScale = 9.5f
-private const val CityLabelMinScale = 3.4f
-private const val CountyLabelMinScale = 11f
+private const val CityLevelMinScale = 4.8f
+private const val CountyLevelMinScale = 18f
+private const val CityLabelMinScale = 5.2f
+private const val CountyLabelMinScale = 21f
+private const val CityFocusMinScale = 5.5f
+private const val CountyFocusMinScale = 22f
 private const val AMapTileSizePx = 256.0
 
 @Composable
@@ -317,16 +319,28 @@ fun AdminMapCanvas(
                 } else {
                     palette.colorFor(group.level, region, index)
                 }
-                val fillAlpha = if (selected) max(group.fillAlpha, 0.88f) else group.fillAlpha
+                val fillAlpha = when {
+                    selected -> 0.92f
+                    group.emphasized -> when (group.level) {
+                        AdminLevel.Province -> 0.64f
+                        AdminLevel.City -> 0.68f
+                        AdminLevel.County -> 0.72f
+                    }
+                    else -> when (group.level) {
+                        AdminLevel.Province -> 0.16f
+                        AdminLevel.City -> 0.22f
+                        AdminLevel.County -> 0.28f
+                    }
+                }
                 val strokeColor = when {
                     selected -> palette.selectedStroke
-                    group.emphasized -> palette.focusBoundary.copy(alpha = max(group.strokeAlpha, 0.96f))
-                    else -> palette.boundary.copy(alpha = group.strokeAlpha)
+                    group.emphasized -> palette.focusBoundary.copy(alpha = max(group.strokeAlpha, 0.98f))
+                    else -> palette.boundary.copy(alpha = max(group.strokeAlpha, 0.42f))
                 }
                 val strokeWidth = when {
-                    selected -> baseStrokeWidth * 2.4f
-                    group.emphasized -> focusStrokeWidth
-                    else -> baseStrokeWidth
+                    selected -> baseStrokeWidth * 2.7f
+                    group.emphasized -> focusStrokeWidth * 1.15f
+                    else -> baseStrokeWidth * 1.1f
                 }
                 val fillColor = fill.copy(alpha = fillAlpha).toArgbInt()
                 val strokeColorInt = strokeColor.toArgbInt()
@@ -511,8 +525,8 @@ fun AdminMapCanvas(
         )
         val minimumScale = when (region.level) {
             AdminLevel.Province -> 1.35f
-            AdminLevel.City -> 4f
-            AdminLevel.County -> 14f
+            AdminLevel.City -> CityFocusMinScale
+            AdminLevel.County -> CountyFocusMinScale
         }
         val targetScale = max(fitScale, minimumScale).coerceIn(0.95f, MaxMapScale)
         val targetPan = targetPanFor(region, targetScale)
@@ -813,17 +827,12 @@ private fun MapPalette.colorFor(
         AdminLevel.County -> countyFills
     }
     val parentSeed = region.parentCode
-        ?.filter { it.isDigit() }
-        ?.takeLast(4)
-        ?.toIntOrNull()
+        ?.hashCode()
         ?: 0
-    val codeSeed = region.code
-        .filter { it.isDigit() }
-        .takeLast(2)
-        .toIntOrNull()
-        ?: index
-    val stride = 3
-    return palette[(index * stride + parentSeed + codeSeed) % palette.size]
+    val codeSeed = region.code.takeIf { it.isNotBlank() }?.hashCode()
+        ?: (region.name.hashCode() + index)
+    val fallbackSeed = region.level.ordinal * 17
+    return palette[Math.floorMod(codeSeed * 31 + parentSeed * 7 + fallbackSeed, palette.size)]
 }
 
 private fun DrawScope.drawLabels(
@@ -866,8 +875,8 @@ private fun DrawScope.drawLabels(
     } * density
     val maxLabels = when (level) {
         AdminLevel.Province -> 40
-        AdminLevel.City -> if (scale < 5.5f) 14 else 24
-        AdminLevel.County -> if (scale < 15f) 10 else 18
+        AdminLevel.City -> if (scale < 8f) 12 else 24
+        AdminLevel.County -> if (scale < 26f) 8 else 18
     }
     val visibleLabels = regions.mapNotNull { region ->
         val bounds = region.projectedScreenBounds(canvasSize, scale, pan, worldToScreen)
