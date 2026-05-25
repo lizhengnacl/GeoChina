@@ -3,7 +3,6 @@ package com.geochina.app.ui
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
-import android.graphics.Color as AndroidColor
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
@@ -59,8 +58,6 @@ private const val CityFocusMinScale = 5.5f
 private const val CountyFocusMinScale = 22f
 private const val AMapTileSizePx = 256.0
 private const val VisualFocusYFraction = 0.56f
-private const val MapFillColorCount = 48
-private const val CandidateHueCount = 36
 
 @Composable
 fun AdminMapCanvas(
@@ -326,16 +323,16 @@ fun AdminMapCanvas(
                     palette.colorFor(group.level, region, index)
                 }
                 val fillAlpha = when {
-                    selected -> 0.92f
+                    selected -> 0.72f
                     group.emphasized -> when (group.level) {
-                        AdminLevel.Province -> 0.64f
-                        AdminLevel.City -> 0.68f
-                        AdminLevel.County -> 0.72f
+                        AdminLevel.Province -> 0.28f
+                        AdminLevel.City -> 0.32f
+                        AdminLevel.County -> 0.36f
                     }
                     else -> when (group.level) {
-                        AdminLevel.Province -> 0.16f
-                        AdminLevel.City -> 0.22f
-                        AdminLevel.County -> 0.28f
+                        AdminLevel.Province -> 0.06f
+                        AdminLevel.City -> 0.08f
+                        AdminLevel.County -> 0.1f
                     }
                 }
                 val strokeColor = when {
@@ -344,8 +341,8 @@ fun AdminMapCanvas(
                     else -> palette.boundary.copy(alpha = max(group.strokeAlpha, 0.42f))
                 }
                 val strokeWidth = when {
-                    selected -> baseStrokeWidth * 2.7f
-                    group.emphasized -> focusStrokeWidth * 1.15f
+                    selected -> baseStrokeWidth * 2.2f
+                    group.emphasized -> focusStrokeWidth
                     else -> baseStrokeWidth * 1.1f
                 }
                 val fillColor = fill.copy(alpha = fillAlpha).toArgbInt()
@@ -685,9 +682,9 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             label = Color(0xFFFFF8EE),
             selectedFill = Color(0xFF3D6EFF),
             selectedStroke = Color(0xFFDCE8FF),
-            provinceFills = distinctMapFills(darkTheme = true, hueOffset = 8f),
-            cityFills = distinctMapFills(darkTheme = true, hueOffset = 41f),
-            countyFills = distinctMapFills(darkTheme = true, hueOffset = 77f),
+            provinceFills = chinaMapFills(darkTheme = true),
+            cityFills = chinaMapFills(darkTheme = true).rotated(5),
+            countyFills = chinaMapFills(darkTheme = true).rotated(10),
             nineDash = Color(0xFFF0C49D),
         )
     } else {
@@ -704,156 +701,48 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             label = Color(0xFF39271E),
             selectedFill = Color(0xFF1A66FF),
             selectedStroke = Color(0xFF003EAD),
-            provinceFills = distinctMapFills(darkTheme = false, hueOffset = 8f),
-            cityFills = distinctMapFills(darkTheme = false, hueOffset = 41f),
-            countyFills = distinctMapFills(darkTheme = false, hueOffset = 77f),
+            provinceFills = chinaMapFills(darkTheme = false),
+            cityFills = chinaMapFills(darkTheme = false).rotated(5),
+            countyFills = chinaMapFills(darkTheme = false).rotated(10),
             nineDash = Color(0xFFB14A3D),
         )
     }
 
-private data class FillTone(
-    val saturation: Float,
-    val value: Float,
-)
-
-private data class FillCandidate(
-    val color: Color,
-    val hue: Float,
-    val hueBucket: Int,
-    val saturation: Float,
-    val value: Float,
-)
-
-private fun distinctMapFills(
-    darkTheme: Boolean,
-    hueOffset: Float,
-): List<Color> {
-    val tones = if (darkTheme) {
+private fun chinaMapFills(darkTheme: Boolean): List<Color> =
+    if (darkTheme) {
         listOf(
-            FillTone(saturation = 0.58f, value = 0.78f),
-            FillTone(saturation = 0.72f, value = 0.68f),
-            FillTone(saturation = 0.48f, value = 0.86f),
+            Color(0xFF6F8060),
+            Color(0xFF807356),
+            Color(0xFF5D7693),
+            Color(0xFF866472),
+            Color(0xFF638A86),
+            Color(0xFF847E5A),
+            Color(0xFF736B91),
+            Color(0xFF896E55),
+            Color(0xFF6D8168),
+            Color(0xFF5F8292),
+            Color(0xFF856F61),
+            Color(0xFF787D5B),
         )
     } else {
         listOf(
-            FillTone(saturation = 0.58f, value = 0.95f),
-            FillTone(saturation = 0.72f, value = 0.84f),
-            FillTone(saturation = 0.45f, value = 0.98f),
+            Color(0xFFF3D8A6),
+            Color(0xFFCFE4B7),
+            Color(0xFFBCD7EA),
+            Color(0xFFEFC4AE),
+            Color(0xFFC8E0DC),
+            Color(0xFFE7D2A0),
+            Color(0xFFD8C8E9),
+            Color(0xFFD8E0A9),
+            Color(0xFFF0D1C0),
+            Color(0xFFC7D8E8),
+            Color(0xFFD7E2C5),
+            Color(0xFFE3D0B4),
         )
     }
-    val candidates = buildList {
-        repeat(CandidateHueCount) { hueIndex ->
-            val hue = normalizedHue(hueOffset + hueIndex * 360f / CandidateHueCount)
-            tones.forEach { tone ->
-                add(
-                    FillCandidate(
-                        color = Color(AndroidColor.HSVToColor(floatArrayOf(hue, tone.saturation, tone.value))),
-                        hue = hue,
-                        hueBucket = hueIndex,
-                        saturation = tone.saturation,
-                        value = tone.value,
-                    ),
-                )
-            }
-        }
-    }
-    val selected = mutableListOf(candidates.first())
-    val remaining = candidates.drop(1).toMutableList()
-    while (selected.size < MapFillColorCount && remaining.isNotEmpty()) {
-        val bestIndex = bestFillCandidateIndex(selected, remaining)
-        selected += remaining.removeAt(bestIndex)
-    }
-    return selected.map { it.color }
-}
 
-private fun normalizedHue(rawHue: Float): Float {
-    val hue = rawHue % 360f
-    return if (hue < 0f) hue + 360f else hue
-}
-
-private fun bestFillCandidateIndex(
-    selected: List<FillCandidate>,
-    remaining: List<FillCandidate>,
-): Int {
-    val usedHueBuckets = selected.mapTo(mutableSetOf()) { it.hueBucket }
-    val requireUnusedHueBucket = usedHueBuckets.size < CandidateHueCount
-    val minimumHueGap = when {
-        selected.size < 18 -> 20f
-        selected.size < 30 -> 10f
-        else -> 0f
-    }
-    var bestIndex = findBestFillCandidateIndex(
-        selected = selected,
-        remaining = remaining,
-        minimumHueGap = minimumHueGap,
-        requireUnusedHueBucket = requireUnusedHueBucket,
-        usedHueBuckets = usedHueBuckets,
-    )
-    if (bestIndex < 0) {
-        bestIndex = findBestFillCandidateIndex(
-            selected = selected,
-            remaining = remaining,
-            minimumHueGap = 0f,
-            requireUnusedHueBucket = requireUnusedHueBucket,
-            usedHueBuckets = usedHueBuckets,
-        )
-    }
-    return if (bestIndex >= 0) bestIndex else 0
-}
-
-private fun findBestFillCandidateIndex(
-    selected: List<FillCandidate>,
-    remaining: List<FillCandidate>,
-    minimumHueGap: Float,
-    requireUnusedHueBucket: Boolean,
-    usedHueBuckets: Set<Int>,
-): Int {
-    var bestIndex = -1
-    var bestDistance = Float.NEGATIVE_INFINITY
-    remaining.forEachIndexed { index, candidate ->
-        if (requireUnusedHueBucket && candidate.hueBucket in usedHueBuckets) return@forEachIndexed
-        if (minimumHueGap > 0f && selected.any { hueDistance(candidate.hue, it.hue) < minimumHueGap }) {
-            return@forEachIndexed
-        }
-        val nearestSelected = selected.minOf { selectedColor ->
-            fillDistanceSquared(candidate, selectedColor)
-        }
-        if (nearestSelected > bestDistance) {
-            bestDistance = nearestSelected
-            bestIndex = index
-        }
-    }
-    return bestIndex
-}
-
-private fun fillDistanceSquared(
-    first: FillCandidate,
-    second: FillCandidate,
-): Float {
-    val red = first.color.red - second.color.red
-    val green = first.color.green - second.color.green
-    val blue = first.color.blue - second.color.blue
-    val luminance = perceivedLuminance(first.color) - perceivedLuminance(second.color)
-    val hue = hueDistance(first.hue, second.hue) / 180f
-    val saturation = first.saturation - second.saturation
-    val value = first.value - second.value
-    return red * red + green * green + blue * blue +
-        luminance * luminance +
-        hue * hue * 2f +
-        saturation * saturation * 0.08f +
-        value * value * 0.08f
-}
-
-private fun hueDistance(
-    firstHue: Float,
-    secondHue: Float,
-): Float {
-    val distance = abs(firstHue - secondHue)
-    return min(distance, 360f - distance)
-}
-
-private fun perceivedLuminance(color: Color): Float =
-    color.red * 0.2126f + color.green * 0.7152f + color.blue * 0.0722f
+private fun List<Color>.rotated(offset: Int): List<Color> =
+    if (isEmpty()) this else drop(offset % size) + take(offset % size)
 
 private fun DrawScope.drawLayer(
     group: RegionDrawGroup,
@@ -883,7 +772,7 @@ private fun DrawScope.drawLayer(
         } else {
             palette.colorFor(group.level, region, index)
         }
-        val fillAlpha = if (selected) max(group.fillAlpha, 0.88f) else group.fillAlpha
+        val fillAlpha = if (selected) max(group.fillAlpha, 0.66f) else group.fillAlpha * 0.62f
         drawPath(path, fill.copy(alpha = fillAlpha * alpha))
         val strokeColor = when {
             selected -> palette.selectedStroke.copy(alpha = alpha)

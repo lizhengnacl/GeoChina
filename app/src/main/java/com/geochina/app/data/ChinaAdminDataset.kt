@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.ln
 import kotlin.math.max
@@ -26,6 +27,7 @@ object ChinaAdminDataset {
     private const val PROVINCE_ASSET = "mapdata/province.geojson"
     private const val CITY_ASSET = "mapdata/city.geojson"
     private const val COUNTY_ASSET = "mapdata/county.geojson"
+    private const val REGION_FACTS_ASSET = "mapdata/region_facts.json"
 
     private val pinyinTransliterator: Transliterator by lazy {
         Transliterator.getInstance("Han-Latin/Names; Latin-ASCII")
@@ -102,6 +104,7 @@ object ChinaAdminDataset {
             preloadStarted = true
         }
         scope.launch {
+            val regionFacts = loadRegionFacts(context)
             val provinceRaw = parseGeoJson(
                 json = readAsset(context, PROVINCE_ASSET),
                 forcedLevel = AdminLevel.Province,
@@ -115,6 +118,7 @@ object ChinaAdminDataset {
             data = buildDataset(
                 rawRegions = provinceRaw.regions + cityRaw.regions,
                 auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+                regionFacts = regionFacts,
             )
             mutableLoadVersion.value += 1
 
@@ -126,12 +130,14 @@ object ChinaAdminDataset {
             data = buildDataset(
                 rawRegions = provinceRaw.regions + cityRaw.regions + countyRaw.regions,
                 auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+                regionFacts = regionFacts,
             )
             mutableLoadVersion.value += 1
         }
     }
 
     private fun loadProvinceDataset(context: Context): Dataset {
+        val regionFacts = loadRegionFacts(context)
         val provinceRaw = parseGeoJson(
             json = readAsset(context, PROVINCE_ASSET),
             forcedLevel = AdminLevel.Province,
@@ -140,12 +146,14 @@ object ChinaAdminDataset {
         return buildDataset(
             rawRegions = provinceRaw.regions,
             auxiliaryPolygons = provinceRaw.auxiliaryPolygons,
+            regionFacts = regionFacts,
         )
     }
 
     private fun buildDataset(
         rawRegions: List<AdministrativeRegion>,
         auxiliaryPolygons: List<List<GeoPoint>>,
+        regionFacts: Map<String, RegionFact>,
     ): Dataset {
         val nameByCode = mutableMapOf("100000" to "中国")
         rawRegions.forEach { raw ->
@@ -155,15 +163,19 @@ object ChinaAdminDataset {
             .filter { it.parentCode != null }
             .groupBy { it.parentCode.orEmpty() }
             .mapValues { entry -> entry.value.distinctBy { it.code }.sortedBy { it.code } }
+        val areaRankByCode = rankByLevel(rawRegions, regionFacts) { it.areaKm2 }
+        val populationRankByCode = rankByLevel(rawRegions, regionFacts) { it.population2020?.toDouble() }
 
         val regions = rawRegions.map { raw ->
             val children = childrenByParent[raw.code].orEmpty()
             val parentName = nameByCode[raw.parentCode] ?: raw.parentName
+            val fact = regionFacts[raw.code]
             raw.copy(
                 parentName = parentName,
                 childrenCount = children.size,
                 subdivisionNames = children.map { it.name },
-                history = introductionFor(raw, parentName, children),
+                history = introductionFor(raw, parentName, children, fact),
+                stats = statsFor(raw.level, fact, areaRankByCode[raw.code], populationRankByCode[raw.code]),
             )
         }
         val provincePolygons = rawRegions
@@ -232,7 +244,7 @@ object ChinaAdminDataset {
                 history = "",
                 subdivisionNames = emptyList(),
                 childrenCount = 0,
-                stats = statsFor(),
+                stats = emptyStats(),
                 polygons = polygons,
             )
         }
@@ -294,7 +306,7 @@ object ChinaAdminDataset {
         }
     }
 
-    private fun statsFor(): RegionStats {
+    private fun emptyStats(): RegionStats {
         return RegionStats(
             areaKm2 = "暂无数据",
             population = "暂无数据",
@@ -307,10 +319,34 @@ object ChinaAdminDataset {
         )
     }
 
+    private fun statsFor(
+        level: AdminLevel,
+        fact: RegionFact?,
+        areaRank: Int?,
+        populationRank: Int?,
+    ): RegionStats {
+        if (fact == null) return emptyStats()
+        return RegionStats(
+            areaKm2 = fact.areaKm2?.let(::formatArea) ?: "暂无数据",
+            population = fact.population2020?.let { "2020年常住人口 ${formatPeopleToWan(it)}" } ?: "暂无数据",
+            density = fact.density?.let { "2020年约 ${formatNumber(it, 0)} 人/平方公里" } ?: "暂无数据",
+            gdp = "暂无统一权威数据",
+            gdpPerCapita = "暂无统一权威数据",
+            populationTrend = listOfNotNull(
+                fact.population2000?.toFloat()?.div(10_000f),
+                fact.population2010?.toFloat()?.div(10_000f),
+                fact.population2020?.toFloat()?.div(10_000f),
+            ),
+            areaRank = areaRank?.let { "${level.title}第 ${it} 位" } ?: "暂无数据",
+            populationRank = populationRank?.let { "${level.title}第 ${it} 位" } ?: "暂无数据",
+        )
+    }
+
     private fun introductionFor(
         region: AdministrativeRegion,
         parentName: String,
         children: List<AdministrativeRegion>,
+        fact: RegionFact?,
     ): String {
         val levelText = when (region.level) {
             AdminLevel.Province -> "省级行政区划"
@@ -337,8 +373,77 @@ object ChinaAdminDataset {
             region.level == AdminLevel.County -> "该层级在当前数据中未继续展开下级行政区划。"
             else -> "当前离线数据尚未完成下级行政区划加载时会显示暂无下辖数据。"
         }
-        return "${region.name}在本应用中作为${levelText}展示，上级行政区划为${parentText}，行政区划代码为${region.code}。$centerText$childrenText 边界轮廓来自内置 DataV.GeoAtlas GeoJSON 数据；人口、面积、GDP 等统计指标当前未接入权威数据源，因此显示为暂无数据。"
+        val statsText = if (fact == null) {
+            "人口、面积等统计指标暂未匹配到离线事实表。"
+        } else {
+            val areaText = fact.areaKm2?.let(::formatArea)?.let { "面积约 $it" }
+            val populationText = fact.population2020?.let { "2020年常住人口 ${formatPeopleToWan(it)}" }
+            val densityText = fact.density?.let { "人口密度约 ${formatNumber(it, 0)} 人/平方公里" }
+            listOfNotNull(areaText, populationText, densityText).joinToString("，").plus("。")
+        }
+        return "${region.name}在本应用中作为${levelText}展示，上级行政区划为${parentText}，行政区划代码为${region.code}。$centerText$childrenText $statsText 边界轮廓来自内置 DataV.GeoAtlas GeoJSON 数据；人口、面积和密度来自 CityPopulation.de 汇编的普查与地理空间数据。GDP 暂未接入统一权威数据源，因此显示为暂无统一权威数据。"
     }
+
+    private fun loadRegionFacts(context: Context): Map<String, RegionFact> =
+        runCatching {
+            val json = JSONObject(readAsset(context, REGION_FACTS_ASSET))
+            val facts = json.getJSONObject("facts")
+            buildMap {
+                val keys = facts.keys()
+                while (keys.hasNext()) {
+                    val code = keys.next()
+                    val item = facts.getJSONObject(code)
+                    put(
+                        code,
+                        RegionFact(
+                            areaKm2 = item.optDoubleOrNull("areaKm2"),
+                            density = item.optDoubleOrNull("density"),
+                            population2000 = item.optLongOrNull("population2000"),
+                            population2010 = item.optLongOrNull("population2010"),
+                            population2020 = item.optLongOrNull("population2020"),
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyMap())
+
+    private fun rankByLevel(
+        regions: List<AdministrativeRegion>,
+        facts: Map<String, RegionFact>,
+        value: (RegionFact) -> Double?,
+    ): Map<String, Int> =
+        regions
+            .groupBy { it.level }
+            .flatMap { (_, levelRegions) ->
+                levelRegions
+                    .mapNotNull { region ->
+                        val fact = facts[region.code] ?: return@mapNotNull null
+                        val metric = value(fact) ?: return@mapNotNull null
+                        region.code to metric
+                    }
+                    .sortedByDescending { it.second }
+                    .mapIndexed { index, pair -> pair.first to index + 1 }
+            }
+            .toMap()
+
+    private fun formatArea(areaKm2: Double): String =
+        if (areaKm2 >= 10_000) {
+            "${formatNumber(areaKm2 / 10_000.0, 2)}万平方公里"
+        } else {
+            "${formatNumber(areaKm2, if (areaKm2 < 100) 2 else 0)}平方公里"
+        }
+
+    private fun formatPeopleToWan(people: Long): String =
+        "${formatNumber(people / 10_000.0, 2)}万人"
+
+    private fun formatNumber(value: Double, decimals: Int): String =
+        String.format(Locale.US, "%,.${decimals}f", value)
+
+    private fun JSONObject.optDoubleOrNull(name: String): Double? =
+        if (!has(name) || isNull(name)) null else optDouble(name).takeIf { it.isFinite() }
+
+    private fun JSONObject.optLongOrNull(name: String): Long? =
+        if (!has(name) || isNull(name)) null else optLong(name)
 
     private fun aliasesFor(name: String): List<String> {
         val shortName = name
@@ -393,5 +498,13 @@ object ChinaAdminDataset {
     private data class ParseResult(
         val regions: List<AdministrativeRegion>,
         val auxiliaryPolygons: List<List<GeoPoint>>,
+    )
+
+    private data class RegionFact(
+        val areaKm2: Double?,
+        val density: Double?,
+        val population2000: Long?,
+        val population2010: Long?,
+        val population2020: Long?,
     )
 }

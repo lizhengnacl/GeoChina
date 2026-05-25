@@ -655,7 +655,7 @@ private fun PopulationTrendChart(values: List<Float>) {
         tonalElevation = 1.dp,
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text("近5年常住人口变化趋势", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("历次普查常住人口变化", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(12.dp))
             val lineColor = MaterialTheme.colorScheme.primary
             Canvas(
@@ -682,8 +682,8 @@ private fun PopulationTrendChart(values: List<Float>) {
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("5年前", style = MaterialTheme.typography.bodySmall)
-                Text("当前", style = MaterialTheme.typography.bodySmall)
+                Text("2000年", style = MaterialTheme.typography.bodySmall)
+                Text("2020年", style = MaterialTheme.typography.bodySmall)
             }
         }
     }
