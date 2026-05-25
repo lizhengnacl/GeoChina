@@ -616,11 +616,11 @@ private fun basicInfoRows(region: AdministrativeRegion): List<Pair<String, Strin
 )
 
 private fun detailedInfoRows(region: AdministrativeRegion): List<Pair<String, String>> = listOf(
-    "政府驻地" to region.governmentSeat,
+    "地图中心坐标" to region.governmentSeat,
     "邮政编码" to region.postalCode,
     "电话区号" to region.phoneCode,
     "下辖行政区划" to if (region.childrenCount == 0) "暂无下辖数据" else "${region.childrenCount} 个：${region.subdivisionNames.joinToString("、")}",
-    "建制历史简介" to region.history,
+    "区域介绍" to region.history,
 )
 
 private fun statisticsRows(stats: RegionStats): List<Pair<String, String>> = listOf(

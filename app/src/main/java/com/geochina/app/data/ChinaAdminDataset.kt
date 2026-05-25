@@ -163,6 +163,7 @@ object ChinaAdminDataset {
                 parentName = parentName,
                 childrenCount = children.size,
                 subdivisionNames = children.map { it.name },
+                history = introductionFor(raw, parentName, children),
             )
         }
         val provincePolygons = rawRegions
@@ -228,10 +229,10 @@ object ChinaAdminDataset {
                 governmentSeat = centerText(properties),
                 postalCode = "暂无数据",
                 phoneCode = "暂无数据",
-                history = "${rawName}边界来自离线 GeoJSON 数据，当前版本以真实行政区轮廓替代早期示范矩形。",
+                history = "",
                 subdivisionNames = emptyList(),
                 childrenCount = 0,
-                stats = statsFor(forcedLevel, polygons),
+                stats = statsFor(),
                 polygons = polygons,
             )
         }
@@ -293,23 +294,50 @@ object ChinaAdminDataset {
         }
     }
 
-    private fun statsFor(
-        level: AdminLevel,
-        polygons: List<List<GeoPoint>>,
-    ): RegionStats {
-        val bounds = computeBounds(polygons)
-        val roughArea = max(1f, bounds.width * bounds.height * 95f)
-        val scope = level.title
+    private fun statsFor(): RegionStats {
         return RegionStats(
             areaKm2 = "暂无数据",
             population = "暂无数据",
             density = "暂无数据",
             gdp = "暂无数据",
             gdpPerCapita = "暂无数据",
-            populationTrend = List(5) { 1f + it * 0.04f + roughArea / 100_000f },
-            areaRank = "$scope 暂无数据",
-            populationRank = "$scope 暂无数据",
+            populationTrend = emptyList(),
+            areaRank = "暂无数据",
+            populationRank = "暂无数据",
         )
+    }
+
+    private fun introductionFor(
+        region: AdministrativeRegion,
+        parentName: String,
+        children: List<AdministrativeRegion>,
+    ): String {
+        val levelText = when (region.level) {
+            AdminLevel.Province -> "省级行政区划"
+            AdminLevel.City -> "市级行政区划"
+            AdminLevel.County -> "区县级行政区划"
+        }
+        val childLevelText = when (region.level) {
+            AdminLevel.Province -> "市级行政区划"
+            AdminLevel.City -> "区县级行政区划"
+            AdminLevel.County -> "下级行政区划"
+        }
+        val parentText = parentName.ifBlank { "暂无数据" }
+        val centerText = if (region.governmentSeat == "暂无数据") {
+            "当前数据未提供地图中心坐标。"
+        } else {
+            "地图中心坐标为 ${region.governmentSeat}。"
+        }
+        val childrenText = when {
+            children.isNotEmpty() -> {
+                val childNames = children.take(12).joinToString("、") { it.name }
+                val suffix = if (children.size > 12) "等" else ""
+                "当前离线数据记录其下辖 ${children.size} 个${childLevelText}：$childNames$suffix。"
+            }
+            region.level == AdminLevel.County -> "该层级在当前数据中未继续展开下级行政区划。"
+            else -> "当前离线数据尚未完成下级行政区划加载时会显示暂无下辖数据。"
+        }
+        return "${region.name}在本应用中作为${levelText}展示，上级行政区划为${parentText}，行政区划代码为${region.code}。$centerText$childrenText 边界轮廓来自内置 DataV.GeoAtlas GeoJSON 数据；人口、面积、GDP 等统计指标当前未接入权威数据源，因此显示为暂无数据。"
     }
 
     private fun aliasesFor(name: String): List<String> {

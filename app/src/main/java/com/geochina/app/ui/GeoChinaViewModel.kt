@@ -107,7 +107,12 @@ class GeoChinaViewModel(
     }
 
     fun hideBottomSheet() {
-        mutableState.update { it.copy(bottomSheetVisible = false) }
+        mutableState.update {
+            it.copy(
+                selectedRegion = null,
+                bottomSheetVisible = false,
+            )
+        }
     }
 
     fun toggleFavoritesPage() {

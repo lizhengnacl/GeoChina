@@ -57,6 +57,7 @@ private const val CountyLabelMinScale = 21f
 private const val CityFocusMinScale = 5.5f
 private const val CountyFocusMinScale = 22f
 private const val AMapTileSizePx = 256.0
+private const val VisualFocusYFraction = 0.56f
 
 @Composable
 fun AdminMapCanvas(
@@ -95,6 +96,8 @@ fun AdminMapCanvas(
 
     fun screenCenter(size: IntSize): Offset = Offset(size.width / 2f, size.height / 2f)
 
+    fun visualFocusCenter(size: IntSize): Offset = Offset(size.width / 2f, size.height * VisualFocusYFraction)
+
     fun worldToScreen(point: GeoPoint, size: IntSize = canvasSize, drawScale: Float = scale, drawPan: Offset = pan): Offset {
         val bounds = ChinaAdminDataset.worldBounds
         val baseScale = baseScaleFor(size)
@@ -119,7 +122,7 @@ fun AdminMapCanvas(
         if (canvasSize.width == 0 || canvasSize.height == 0) {
             ChinaAdminDataset.worldBounds.center
         } else {
-            screenToWorld(screenCenter(canvasSize))
+            screenToWorld(visualFocusCenter(canvasSize))
         }
 
     fun viewportWorldBounds(): GeoRect {
@@ -367,7 +370,7 @@ fun AdminMapCanvas(
 
     fun targetPanFor(region: AdministrativeRegion, targetScale: Float): Offset {
         val projected = worldToScreen(region.bounds.center, drawScale = targetScale, drawPan = Offset.Zero)
-        return screenCenter(canvasSize) - projected
+        return visualFocusCenter(canvasSize) - projected
     }
 
     fun zoomTargetAround(
@@ -426,19 +429,14 @@ fun AdminMapCanvas(
     fun handleTap(screenPoint: Offset) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return
         val worldPoint = screenToWorld(screenPoint)
-        val seenCodes = mutableSetOf<String>()
-        val candidates = renderGroups(renderedLevel)
-            .asReversed()
+        val levelRegions = renderGroups(renderedLevel)
+            .filter { it.level == renderedLevel }
             .flatMap { it.regions }
-            .filter { region ->
-                seenCodes.add(region.code) &&
-                    region.bounds.contains(worldPoint) &&
-                    region.polygons.any { polygon -> polygonContains(polygon, worldPoint) }
-            }
-        if (candidates.isEmpty()) {
+        val selected = regionAt(worldPoint, levelRegions)
+        if (selected == null) {
             onBlankTap()
         } else {
-            onRegionCandidates(candidates)
+            onRegionCandidates(listOf(selected))
         }
     }
 
@@ -539,7 +537,7 @@ fun AdminMapCanvas(
     LaunchedEffect(zoomCommand?.nonce, canvasSize) {
         val command = zoomCommand ?: return@LaunchedEffect
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
-        launchZoomAnimation(screenCenter(canvasSize), command.factor)
+        launchZoomAnimation(visualFocusCenter(canvasSize), command.factor)
     }
 
     Canvas(
@@ -679,11 +677,11 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             basemapBoundary = Color(0xFFB7A98D),
             graticule = Color(0xFF9EB3BE),
             graticuleLabel = Color(0xFFD7E3E7),
-            boundary = Color(0xFFD6B29A),
-            focusBoundary = Color(0xFFFFE2A8),
+            boundary = Color(0xFF7FA8FF),
+            focusBoundary = Color(0xFFBFD2FF),
             label = Color(0xFFFFF8EE),
-            selectedFill = Color(0xFFCF4A3D),
-            selectedStroke = Color(0xFFFFE2C8),
+            selectedFill = Color(0xFF3D6EFF),
+            selectedStroke = Color(0xFFDCE8FF),
             provinceFills = listOf(
                 Color(0xFF6F8F72),
                 Color(0xFF8F785C),
@@ -725,11 +723,11 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             basemapBoundary = Color(0xFF8B7A59),
             graticule = Color(0xFF77AFC4),
             graticuleLabel = Color(0xFF4B8294),
-            boundary = Color(0xFF9A5645),
-            focusBoundary = Color(0xFFD54431),
+            boundary = Color(0xFF3D6EFF),
+            focusBoundary = Color(0xFF1A66FF),
             label = Color(0xFF39271E),
-            selectedFill = Color(0xFFC7352A),
-            selectedStroke = Color(0xFF7E1E18),
+            selectedFill = Color(0xFF1A66FF),
+            selectedStroke = Color(0xFF003EAD),
             provinceFills = listOf(
                 Color(0xFFF5D8A6),
                 Color(0xFFCFE5B6),

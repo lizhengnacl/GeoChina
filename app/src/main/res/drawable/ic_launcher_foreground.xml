@@ -28,13 +28,13 @@
     <path
         android:fillColor="#00000000"
         android:pathData="M52.8,21.5L53.8,57.2L58.1,84.2M31.8,60.4L54.2,55L78.5,61.1"
-        android:strokeColor="#B7192B"
+        android:strokeColor="#1A66FF"
         android:strokeAlpha="0.75"
         android:strokeWidth="2.5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
     <path
-        android:fillColor="#B7192B"
+        android:fillColor="#1A66FF"
         android:pathData="M63.8,37.6C56.8,37.6 51.2,43.2 51.2,50.2C51.2,59.8 63.8,71 63.8,71C63.8,71 76.4,59.8 76.4,50.2C76.4,43.2 70.8,37.6 63.8,37.6Z" />
     <path
         android:fillColor="#FFFFFF"
