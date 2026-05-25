@@ -151,6 +151,7 @@ private fun GeoChinaScreen(
     var overlapCandidates by remember { mutableStateOf<List<AdministrativeRegion>>(emptyList()) }
     var zoomCommand by remember { mutableStateOf<ZoomCommand?>(null) }
     var mapViewport by remember { mutableStateOf(MapViewport.China) }
+    var mapRegionOverlays by remember { mutableStateOf(MapRegionOverlayState.Empty) }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -160,6 +161,7 @@ private fun GeoChinaScreen(
         ) {
             OnlineMapBasemap(
                 viewport = mapViewport,
+                regionOverlayState = mapRegionOverlays,
                 modifier = Modifier.fillMaxSize(),
             )
 
@@ -172,6 +174,7 @@ private fun GeoChinaScreen(
                 useOnlineBasemap = true,
                 onLevelChanged = onLevelChanged,
                 onViewportChanged = { mapViewport = it },
+                onMapRegionOverlaysChanged = { mapRegionOverlays = it },
                 onRegionCandidates = { candidates ->
                     if (candidates.size == 1) {
                         onRegionSelected(candidates.first())

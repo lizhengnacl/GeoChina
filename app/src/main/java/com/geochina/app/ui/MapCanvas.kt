@@ -66,6 +66,7 @@ fun AdminMapCanvas(
     useOnlineBasemap: Boolean = true,
     onLevelChanged: (AdminLevel) -> Unit,
     onViewportChanged: (MapViewport) -> Unit = {},
+    onMapRegionOverlaysChanged: (MapRegionOverlayState) -> Unit = {},
     onRegionCandidates: (List<AdministrativeRegion>) -> Unit,
     onBlankTap: () -> Unit,
     modifier: Modifier = Modifier,
@@ -79,6 +80,7 @@ fun AdminMapCanvas(
     var previousLevel by remember { mutableStateOf(currentLevel) }
     var stableProvinceCode by remember { mutableStateOf<String?>(null) }
     var stableCityCode by remember { mutableStateOf<String?>(null) }
+    var emittedOverlaySignature by remember { mutableStateOf<String?>(null) }
     var viewportAnimationJob by remember { mutableStateOf<Job?>(null) }
     val interactionScope = rememberCoroutineScope()
     val transition = remember { Animatable(1f) }
@@ -286,6 +288,69 @@ fun AdminMapCanvas(
         }.filter { it.regions.isNotEmpty() }
     }
 
+    fun mapRegionOverlayState(): MapRegionOverlayState {
+        if (!useOnlineBasemap) return MapRegionOverlayState.Empty
+        val selectedCode = selectedRegion?.code
+        val entries = mutableListOf<MapRegionOverlayEntry>()
+        val signature = StringBuilder()
+            .append(if (darkTheme) "dark" else "light")
+            .append('|')
+            .append(renderedLevel.name)
+            .append('|')
+            .append(selectedCode.orEmpty())
+
+        renderGroups(renderedLevel).forEachIndexed { groupIndex, group ->
+            val baseStrokeWidth = when (group.level) {
+                AdminLevel.Province -> 1.4f
+                AdminLevel.City -> 1.0f
+                AdminLevel.County -> 0.7f
+            } * density.density
+            val focusStrokeWidth = baseStrokeWidth * when (group.level) {
+                AdminLevel.Province -> 1.25f
+                AdminLevel.City -> 1.45f
+                AdminLevel.County -> 1.65f
+            }
+            group.regions.forEachIndexed { index, region ->
+                val selected = region.code == selectedCode
+                val fill = if (selected) {
+                    palette.selectedFill
+                } else {
+                    palette.colorFor(group.level, region, index)
+                }
+                val fillAlpha = if (selected) max(group.fillAlpha, 0.88f) else group.fillAlpha
+                val strokeColor = when {
+                    selected -> palette.selectedStroke
+                    group.emphasized -> palette.focusBoundary.copy(alpha = max(group.strokeAlpha, 0.96f))
+                    else -> palette.boundary.copy(alpha = group.strokeAlpha)
+                }
+                val strokeWidth = when {
+                    selected -> baseStrokeWidth * 2.4f
+                    group.emphasized -> focusStrokeWidth
+                    else -> baseStrokeWidth
+                }
+                val fillColor = fill.copy(alpha = fillAlpha).toArgbInt()
+                val strokeColorInt = strokeColor.toArgbInt()
+                entries += MapRegionOverlayEntry(
+                    region = region,
+                    fillColor = fillColor,
+                    strokeColor = strokeColorInt,
+                    strokeWidthPx = strokeWidth,
+                    zIndex = groupIndex * 10f + if (selected) 50f else 0f,
+                )
+                signature
+                    .append('|')
+                    .append(region.code)
+                    .append(':')
+                    .append(fillColor)
+                    .append(':')
+                    .append(strokeColorInt)
+                    .append(':')
+                    .append(strokeWidth)
+            }
+        }
+        return MapRegionOverlayState(entries, signature.toString())
+    }
+
     fun targetPanFor(region: AdministrativeRegion, targetScale: Float): Offset {
         val projected = worldToScreen(region.bounds.center, drawScale = targetScale, drawPan = Offset.Zero)
         return screenCenter(canvasSize) - projected
@@ -371,6 +436,24 @@ fun AdminMapCanvas(
     LaunchedEffect(canvasSize, scale, pan) {
         if (canvasSize.width == 0 || canvasSize.height == 0) return@LaunchedEffect
         onViewportChanged(viewportState())
+    }
+
+    LaunchedEffect(
+        useOnlineBasemap,
+        canvasSize,
+        pan,
+        scale,
+        renderedLevel,
+        stableProvinceCode,
+        stableCityCode,
+        selectedRegion?.code,
+        darkTheme,
+    ) {
+        val overlayState = mapRegionOverlayState()
+        if (overlayState.signature != emittedOverlaySignature) {
+            emittedOverlaySignature = overlayState.signature
+            onMapRegionOverlaysChanged(overlayState)
+        }
     }
 
     LaunchedEffect(canvasSize, pan, scale, selectedRegion?.code) {
@@ -495,21 +578,33 @@ fun AdminMapCanvas(
                 worldToScreen = ::worldToScreen,
                 density = density.density,
             )
-        }
-        drawAuxiliaryBoundaries(
-            palette = palette,
-            scale = scale,
-            pan = pan,
-            worldToScreen = ::worldToScreen,
-            density = density.density,
-        )
-        val selectedCode = selectedRegion?.code
-        val progress = transition.value
-        if (progress < 1f && previousLevel != renderedLevel) {
-            renderGroups(previousLevel).forEach { group ->
+            drawAuxiliaryBoundaries(
+                palette = palette,
+                scale = scale,
+                pan = pan,
+                worldToScreen = ::worldToScreen,
+                density = density.density,
+            )
+            val selectedCode = selectedRegion?.code
+            val progress = transition.value
+            if (progress < 1f && previousLevel != renderedLevel) {
+                renderGroups(previousLevel).forEach { group ->
+                    drawLayer(
+                        group = group,
+                        alpha = 1f - progress,
+                        selectedCode = selectedCode,
+                        palette = palette,
+                        scale = scale,
+                        pan = pan,
+                        worldToScreen = ::worldToScreen,
+                        density = density.density,
+                    )
+                }
+            }
+            renderGroups(renderedLevel).forEach { group ->
                 drawLayer(
                     group = group,
-                    alpha = 1f - progress,
+                    alpha = progress,
                     selectedCode = selectedCode,
                     palette = palette,
                     scale = scale,
@@ -518,18 +613,6 @@ fun AdminMapCanvas(
                     density = density.density,
                 )
             }
-        }
-        renderGroups(renderedLevel).forEach { group ->
-            drawLayer(
-                group = group,
-                alpha = progress,
-                selectedCode = selectedCode,
-                palette = palette,
-                scale = scale,
-                pan = pan,
-                worldToScreen = ::worldToScreen,
-                density = density.density,
-            )
         }
     }
 }
@@ -1038,7 +1121,7 @@ private fun projectLongitudeLatitude(longitude: Float, latitude: Float): GeoPoin
     return GeoPoint(longitude, -mercatorY.toFloat())
 }
 
-private fun latitudeFromProjectedY(projectedY: Float): Double {
+internal fun latitudeFromProjectedY(projectedY: Float): Double {
     val mercatorY = -projectedY.toDouble()
     val radians = 2.0 * atan(exp(mercatorY * PI / 180.0)) - PI / 2.0
     return Math.toDegrees(radians).coerceIn(-85.0, 85.0)

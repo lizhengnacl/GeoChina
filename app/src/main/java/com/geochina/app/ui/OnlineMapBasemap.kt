@@ -15,10 +15,13 @@ import com.amap.api.maps.TextureMapView
 import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.LatLngBounds
+import com.amap.api.maps.model.Polygon
+import com.amap.api.maps.model.PolygonOptions
 
 @Composable
 fun OnlineMapBasemap(
     viewport: MapViewport,
+    regionOverlayState: MapRegionOverlayState = MapRegionOverlayState.Empty,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -40,6 +43,7 @@ fun OnlineMapBasemap(
             moveTo(viewport)
         }
     }
+    val regionOverlayRenderer = remember(aMap) { RegionOverlayRenderer() }
 
     DisposableEffect(lifecycle, mapView) {
         var destroyed = false
@@ -60,6 +64,7 @@ fun OnlineMapBasemap(
         lifecycle.addObserver(observer)
         onDispose {
             lifecycle.removeObserver(observer)
+            regionOverlayRenderer.clear()
             destroyMapView()
         }
     }
@@ -69,8 +74,43 @@ fun OnlineMapBasemap(
         factory = { mapView },
         update = {
             aMap.moveTo(viewport)
+            regionOverlayRenderer.render(aMap, regionOverlayState)
         },
     )
+}
+
+private class RegionOverlayRenderer {
+    private val polygons = mutableListOf<Polygon>()
+    private var renderedSignature: String? = null
+
+    fun render(aMap: AMap, state: MapRegionOverlayState) {
+        if (state.signature == renderedSignature) return
+        clear()
+        state.entries.forEach { entry ->
+            entry.region.polygons.forEach { polygon ->
+                val points = polygon.map { point ->
+                    LatLng(latitudeFromProjectedY(point.y), point.x.toDouble())
+                }
+                if (points.size >= 3) {
+                    polygons += aMap.addPolygon(
+                        PolygonOptions()
+                            .addAll(points)
+                            .fillColor(entry.fillColor)
+                            .strokeColor(entry.strokeColor)
+                            .strokeWidth(entry.strokeWidthPx)
+                            .zIndex(entry.zIndex),
+                    )
+                }
+            }
+        }
+        renderedSignature = state.signature
+    }
+
+    fun clear() {
+        polygons.forEach { it.remove() }
+        polygons.clear()
+        renderedSignature = null
+    }
 }
 
 private fun AMap.moveTo(viewport: MapViewport) {
