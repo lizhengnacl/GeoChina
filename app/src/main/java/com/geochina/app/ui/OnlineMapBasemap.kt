@@ -14,6 +14,7 @@ import com.amap.api.maps.CameraUpdateFactory
 import com.amap.api.maps.TextureMapView
 import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.LatLng
+import com.amap.api.maps.model.LatLngBounds
 
 @Composable
 fun OnlineMapBasemap(
@@ -73,6 +74,17 @@ fun OnlineMapBasemap(
 }
 
 private fun AMap.moveTo(viewport: MapViewport) {
+    if (viewport.hasBounds) {
+        val bounds = LatLngBounds.Builder()
+            .include(LatLng(viewport.south, viewport.west))
+            .include(LatLng(viewport.north, viewport.east))
+            .build()
+        val boundsUpdate = CameraUpdateFactory.newLatLngBoundsRect(bounds, 0, 0, 0, 0)
+        if (runCatching { moveCamera(boundsUpdate) }.isSuccess) {
+            return
+        }
+    }
+
     val position = CameraPosition.Builder()
         .target(LatLng(viewport.latitude, viewport.longitude))
         .zoom(viewport.zoom.toFloat().coerceIn(3f, 20f))

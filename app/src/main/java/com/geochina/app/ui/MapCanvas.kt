@@ -54,6 +54,7 @@ private const val CityLevelMinScale = 3f
 private const val CountyLevelMinScale = 9.5f
 private const val CityLabelMinScale = 3.4f
 private const val CountyLabelMinScale = 11f
+private const val AMapTileSizePx = 256.0
 
 @Composable
 fun AdminMapCanvas(
@@ -131,11 +132,16 @@ fun AdminMapCanvas(
 
     fun viewportState(): MapViewport {
         val center = viewportCenterWorld()
+        val bounds = viewportWorldBounds()
         val pixelPerProjectedDegree = baseScaleFor(canvasSize) * scale
         return MapViewport(
             latitude = latitudeFromProjectedY(center.y),
             longitude = center.x.toDouble().coerceIn(70.0, 140.0),
             zoom = onlineMapZoomFor(pixelPerProjectedDegree),
+            north = latitudeFromProjectedY(bounds.top),
+            south = latitudeFromProjectedY(bounds.bottom),
+            west = bounds.left.toDouble().coerceIn(-180.0, 180.0),
+            east = bounds.right.toDouble().coerceIn(-180.0, 180.0),
         )
     }
 
@@ -1039,7 +1045,7 @@ private fun latitudeFromProjectedY(projectedY: Float): Double {
 }
 
 private fun onlineMapZoomFor(pixelPerProjectedDegree: Float): Double {
-    val zoom = ln((pixelPerProjectedDegree * 360.0) / 512.0) / ln(2.0)
+    val zoom = ln((pixelPerProjectedDegree * 360.0) / AMapTileSizePx) / ln(2.0)
     return zoom.coerceIn(2.0, 20.0)
 }
 
