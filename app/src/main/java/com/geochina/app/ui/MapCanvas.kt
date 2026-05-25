@@ -3,6 +3,7 @@ package com.geochina.app.ui
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.Color as AndroidColor
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
@@ -49,7 +50,7 @@ import kotlin.math.min
 import kotlin.math.tan
 
 private const val MinMapScale = 0.85f
-private const val MaxMapScale = 80f
+private const val MaxMapScale = 16_384f
 private const val CityLevelMinScale = 4.8f
 private const val CountyLevelMinScale = 18f
 private const val CityLabelMinScale = 5.2f
@@ -58,6 +59,8 @@ private const val CityFocusMinScale = 5.5f
 private const val CountyFocusMinScale = 22f
 private const val AMapTileSizePx = 256.0
 private const val VisualFocusYFraction = 0.56f
+private const val MapFillColorCount = 48
+private const val CandidateHueCount = 36
 
 @Composable
 fun AdminMapCanvas(
@@ -682,36 +685,9 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             label = Color(0xFFFFF8EE),
             selectedFill = Color(0xFF3D6EFF),
             selectedStroke = Color(0xFFDCE8FF),
-            provinceFills = listOf(
-                Color(0xFF6F8F72),
-                Color(0xFF8F785C),
-                Color(0xFF647F9E),
-                Color(0xFF936D78),
-                Color(0xFF6B918E),
-                Color(0xFF8C875E),
-                Color(0xFF7B7399),
-                Color(0xFF9A6F58),
-            ),
-            cityFills = listOf(
-                Color(0xFF7EA480),
-                Color(0xFFA68D69),
-                Color(0xFF7595BA),
-                Color(0xFFA87E8B),
-                Color(0xFF78A7A2),
-                Color(0xFFA49F70),
-                Color(0xFF9186B1),
-                Color(0xFFB08367),
-            ),
-            countyFills = listOf(
-                Color(0xFF8CB889),
-                Color(0xFFBCA06E),
-                Color(0xFF86A8C9),
-                Color(0xFFBC8D9B),
-                Color(0xFF8ABBB5),
-                Color(0xFFB8B27B),
-                Color(0xFFA297C6),
-                Color(0xFFC49372),
-            ),
+            provinceFills = distinctMapFills(darkTheme = true, hueOffset = 8f),
+            cityFills = distinctMapFills(darkTheme = true, hueOffset = 41f),
+            countyFills = distinctMapFills(darkTheme = true, hueOffset = 77f),
             nineDash = Color(0xFFF0C49D),
         )
     } else {
@@ -728,39 +704,156 @@ private fun mapPalette(darkTheme: Boolean): MapPalette =
             label = Color(0xFF39271E),
             selectedFill = Color(0xFF1A66FF),
             selectedStroke = Color(0xFF003EAD),
-            provinceFills = listOf(
-                Color(0xFFF5D8A6),
-                Color(0xFFCFE5B6),
-                Color(0xFFBCD6EA),
-                Color(0xFFEFC0A8),
-                Color(0xFFC8E0DC),
-                Color(0xFFE7D2A0),
-                Color(0xFFD8C8E9),
-                Color(0xFFD8E0A9),
-            ),
-            cityFills = listOf(
-                Color(0xFFF7C987),
-                Color(0xFFB8D99B),
-                Color(0xFFA9C9E6),
-                Color(0xFFE7A98F),
-                Color(0xFFAED7D1),
-                Color(0xFFE3CC7D),
-                Color(0xFFCAB6E1),
-                Color(0xFFC9D787),
-            ),
-            countyFills = listOf(
-                Color(0xFFFFD69A),
-                Color(0xFFC6E6A5),
-                Color(0xFFB7D8F0),
-                Color(0xFFF1B89E),
-                Color(0xFFBEE4DF),
-                Color(0xFFEBD88F),
-                Color(0xFFD9C4EE),
-                Color(0xFFD8E79A),
-            ),
+            provinceFills = distinctMapFills(darkTheme = false, hueOffset = 8f),
+            cityFills = distinctMapFills(darkTheme = false, hueOffset = 41f),
+            countyFills = distinctMapFills(darkTheme = false, hueOffset = 77f),
             nineDash = Color(0xFFB14A3D),
         )
     }
+
+private data class FillTone(
+    val saturation: Float,
+    val value: Float,
+)
+
+private data class FillCandidate(
+    val color: Color,
+    val hue: Float,
+    val hueBucket: Int,
+    val saturation: Float,
+    val value: Float,
+)
+
+private fun distinctMapFills(
+    darkTheme: Boolean,
+    hueOffset: Float,
+): List<Color> {
+    val tones = if (darkTheme) {
+        listOf(
+            FillTone(saturation = 0.58f, value = 0.78f),
+            FillTone(saturation = 0.72f, value = 0.68f),
+            FillTone(saturation = 0.48f, value = 0.86f),
+        )
+    } else {
+        listOf(
+            FillTone(saturation = 0.58f, value = 0.95f),
+            FillTone(saturation = 0.72f, value = 0.84f),
+            FillTone(saturation = 0.45f, value = 0.98f),
+        )
+    }
+    val candidates = buildList {
+        repeat(CandidateHueCount) { hueIndex ->
+            val hue = normalizedHue(hueOffset + hueIndex * 360f / CandidateHueCount)
+            tones.forEach { tone ->
+                add(
+                    FillCandidate(
+                        color = Color(AndroidColor.HSVToColor(floatArrayOf(hue, tone.saturation, tone.value))),
+                        hue = hue,
+                        hueBucket = hueIndex,
+                        saturation = tone.saturation,
+                        value = tone.value,
+                    ),
+                )
+            }
+        }
+    }
+    val selected = mutableListOf(candidates.first())
+    val remaining = candidates.drop(1).toMutableList()
+    while (selected.size < MapFillColorCount && remaining.isNotEmpty()) {
+        val bestIndex = bestFillCandidateIndex(selected, remaining)
+        selected += remaining.removeAt(bestIndex)
+    }
+    return selected.map { it.color }
+}
+
+private fun normalizedHue(rawHue: Float): Float {
+    val hue = rawHue % 360f
+    return if (hue < 0f) hue + 360f else hue
+}
+
+private fun bestFillCandidateIndex(
+    selected: List<FillCandidate>,
+    remaining: List<FillCandidate>,
+): Int {
+    val usedHueBuckets = selected.mapTo(mutableSetOf()) { it.hueBucket }
+    val requireUnusedHueBucket = usedHueBuckets.size < CandidateHueCount
+    val minimumHueGap = when {
+        selected.size < 18 -> 20f
+        selected.size < 30 -> 10f
+        else -> 0f
+    }
+    var bestIndex = findBestFillCandidateIndex(
+        selected = selected,
+        remaining = remaining,
+        minimumHueGap = minimumHueGap,
+        requireUnusedHueBucket = requireUnusedHueBucket,
+        usedHueBuckets = usedHueBuckets,
+    )
+    if (bestIndex < 0) {
+        bestIndex = findBestFillCandidateIndex(
+            selected = selected,
+            remaining = remaining,
+            minimumHueGap = 0f,
+            requireUnusedHueBucket = requireUnusedHueBucket,
+            usedHueBuckets = usedHueBuckets,
+        )
+    }
+    return if (bestIndex >= 0) bestIndex else 0
+}
+
+private fun findBestFillCandidateIndex(
+    selected: List<FillCandidate>,
+    remaining: List<FillCandidate>,
+    minimumHueGap: Float,
+    requireUnusedHueBucket: Boolean,
+    usedHueBuckets: Set<Int>,
+): Int {
+    var bestIndex = -1
+    var bestDistance = Float.NEGATIVE_INFINITY
+    remaining.forEachIndexed { index, candidate ->
+        if (requireUnusedHueBucket && candidate.hueBucket in usedHueBuckets) return@forEachIndexed
+        if (minimumHueGap > 0f && selected.any { hueDistance(candidate.hue, it.hue) < minimumHueGap }) {
+            return@forEachIndexed
+        }
+        val nearestSelected = selected.minOf { selectedColor ->
+            fillDistanceSquared(candidate, selectedColor)
+        }
+        if (nearestSelected > bestDistance) {
+            bestDistance = nearestSelected
+            bestIndex = index
+        }
+    }
+    return bestIndex
+}
+
+private fun fillDistanceSquared(
+    first: FillCandidate,
+    second: FillCandidate,
+): Float {
+    val red = first.color.red - second.color.red
+    val green = first.color.green - second.color.green
+    val blue = first.color.blue - second.color.blue
+    val luminance = perceivedLuminance(first.color) - perceivedLuminance(second.color)
+    val hue = hueDistance(first.hue, second.hue) / 180f
+    val saturation = first.saturation - second.saturation
+    val value = first.value - second.value
+    return red * red + green * green + blue * blue +
+        luminance * luminance +
+        hue * hue * 2f +
+        saturation * saturation * 0.08f +
+        value * value * 0.08f
+}
+
+private fun hueDistance(
+    firstHue: Float,
+    secondHue: Float,
+): Float {
+    val distance = abs(firstHue - secondHue)
+    return min(distance, 360f - distance)
+}
+
+private fun perceivedLuminance(color: Color): Float =
+    color.red * 0.2126f + color.green * 0.7152f + color.blue * 0.0722f
 
 private fun DrawScope.drawLayer(
     group: RegionDrawGroup,
@@ -824,13 +917,20 @@ private fun MapPalette.colorFor(
         AdminLevel.City -> cityFills
         AdminLevel.County -> countyFills
     }
-    val parentSeed = region.parentCode
-        ?.hashCode()
-        ?: 0
-    val codeSeed = region.code.takeIf { it.isNotBlank() }?.hashCode()
-        ?: (region.name.hashCode() + index)
-    val fallbackSeed = region.level.ordinal * 17
-    return palette[Math.floorMod(codeSeed * 31 + parentSeed * 7 + fallbackSeed, palette.size)]
+    return palette[Math.floorMod(stableSiblingIndex(level, region, index), palette.size)]
+}
+
+private fun stableSiblingIndex(
+    level: AdminLevel,
+    region: AdministrativeRegion,
+    fallbackIndex: Int,
+): Int {
+    val siblings = region.parentCode
+        ?.let { ChinaAdminDataset.regionsForParent(level, it) }
+        ?: ChinaAdminDataset.regionsForLevel(level)
+    return siblings.indexOfFirst { it.code == region.code }
+        .takeIf { it >= 0 }
+        ?: fallbackIndex
 }
 
 private fun DrawScope.drawLabels(
